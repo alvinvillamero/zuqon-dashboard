@@ -36,7 +36,7 @@ export class FacebookAPI {
   
   static getAuthUrl(): string {
     console.log('Facebook App ID:', ENV.FACEBOOK_APP_ID);
-    const redirectUri = `http://localhost:3000/auth/facebook/callback`;
+    const redirectUri = `https://zuqon-dashboard.vercel.app/auth/facebook/callback`;
     console.log('Redirect URI:', redirectUri);
     
     if (!ENV.FACEBOOK_APP_ID) {
