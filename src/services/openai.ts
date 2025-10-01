@@ -1,11 +1,11 @@
-import OpenAI from 'openai';
+// import OpenAI from 'openai';
 import { Article } from '../types';
 import { ENV } from '../config/env';
 
-const openai = new OpenAI({
-  apiKey: ENV.OPENAI_API_KEY,
-  dangerouslyAllowBrowser: true // Required for client-side usage
-});
+// const openai = new OpenAI({
+//   apiKey: ENV.OPENAI_API_KEY,
+//   dangerouslyAllowBrowser: true // Required for client-side usage
+// });
 
 const log = (message: string, data?: any) => {
   const timestamp = new Date().toISOString();
