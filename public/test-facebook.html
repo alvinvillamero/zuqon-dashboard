@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Facebook OAuth Test</title>
+</head>
+<body>
+    <h1>Facebook OAuth Test</h1>
+    <button onclick="testFacebook()">Test Facebook OAuth</button>
+    <div id="result"></div>
+
+    <script>
+        function testFacebook() {
+            const appId = '790360943845496';
+            const redirectUri = 'http://localhost:3000/auth/facebook/callback';
+            
+            const authUrl = `https://www.facebook.com/v19.0/dialog/oauth?client_id=${appId}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=pages_show_list,pages_manage_posts,pages_read_engagement,pages_manage_metadata&response_type=code&state=facebook_auth`;
+            
+            document.getElementById('result').innerHTML = `
+                <h3>Generated Auth URL:</h3>
+                <p><a href="${authUrl}" target="_blank">${authUrl}</a></p>
+                <p>Click the link above to test Facebook OAuth directly.</p>
+            `;
+        }
+    </script>
+</body>
+</html>
