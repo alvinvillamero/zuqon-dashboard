@@ -10,10 +10,10 @@ export default defineConfig({
   },
   build: {
     rollupOptions: {
-      external: ['openai']
+      external: []
     }
   },
   optimizeDeps: {
-    exclude: ['openai']
+    include: ['openai']
   }
 })
