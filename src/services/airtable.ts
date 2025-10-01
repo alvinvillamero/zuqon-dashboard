@@ -243,12 +243,12 @@ export const saveGeneratedContent = async (content: {
     if (content.graphicUrl) {
       const graphicUrlField = fieldStructure.graphicUrlField || 'Graphic_URL';
       
-      // Try different approaches based on field type
-      try {
-        // First try as text field (for Long text fields)
+      // Handle graphic URL based on its format
+      if (content.graphicUrl.startsWith('data:')) {
+        // Base64 data URL - try as text field first
         saveData[graphicUrlField] = content.graphicUrl;
-      } catch (textError) {
-        // If text fails, try as attachment
+      } else {
+        // Regular URL - use attachment format
         saveData[graphicUrlField] = [
           {
             url: content.graphicUrl,
@@ -294,18 +294,64 @@ export const updateGeneratedContentGraphic = async (
   }
 ): Promise<void> => {
   try {
-    await contentTable.update(contentId, {
-      'Graphic_URL': [
+    // Detect the correct field name for graphic URL
+    const fieldStructure = await detectFieldStructure();
+    const graphicUrlField = fieldStructure.graphicUrlField || 'Graphic_URL';
+    
+    console.log(`Using field: ${graphicUrlField}`);
+    
+    // Prepare update data
+    let updateData: any = {
+      'Graphic_Prompt': graphicData.graphicPrompt,
+      'Graphic_Style': graphicData.graphicStyle
+    };
+    
+    // Handle graphic URL based on its format
+    if (graphicData.graphicUrl.startsWith('data:')) {
+      // Base64 data URL - try as text field first
+      updateData[graphicUrlField] = graphicData.graphicUrl;
+      
+      try {
+        await contentTable.update(contentId, updateData);
+        console.log(`Successfully updated ${graphicUrlField} as text field`);
+        return;
+      } catch (textError) {
+        console.log('Text field approach failed, trying attachment format...');
+        
+        // If text fails, try as attachment
+        const base64String = graphicData.graphicUrl.split(',')[1];
+        const mimeType = graphicData.graphicUrl.split(',')[0].split(':')[1].split(';')[0];
+        
+        updateData[graphicUrlField] = [
+          {
+            url: graphicData.graphicUrl,
+            filename: `generated-graphic-${Date.now()}.${mimeType.split('/')[1] || 'jpg'}`
+          }
+        ];
+      }
+    } else {
+      // Regular URL - use attachment format
+      updateData[graphicUrlField] = [
         {
           url: graphicData.graphicUrl,
           filename: `generated-graphic-${Date.now()}.png`
         }
-      ],
-      'Graphic_Prompt': graphicData.graphicPrompt,
-      'Graphic_Style': graphicData.graphicStyle
-    });
+      ];
+    }
+    
+    console.log('Attempting to update with attachment format:', updateData);
+    await contentTable.update(contentId, updateData);
+    console.log(`Successfully updated ${graphicUrlField} as attachment field`);
+    
   } catch (error) {
     console.error('Error updating graphic:', error);
+    console.error('Full error details:', JSON.stringify(error, null, 2));
+    
+    // If the error contains field information, log it
+    if (error.error && error.error.message) {
+      console.error('Airtable error message:', error.error.message);
+    }
+    
     throw error;
   }
 };

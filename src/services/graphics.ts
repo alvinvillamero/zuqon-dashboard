@@ -167,27 +167,128 @@ export const generateArticleGraphic = async (
     // Step 2: Generate the image
     const graphic = await generateImage(prompt, options);
     
-    // Step 3: Download and compress the image for smaller file size
-    log('Downloading and compressing generated image...');
+    // Step 3: Convert the temporary DALL-E URL to a permanent base64 data URL
+    log('Converting DALL-E image to permanent format...');
     try {
-      const imageBlob = await downloadImage(graphic.url);
-      const compressedUrl = await compressBlobToBase64(imageBlob, 512, 0.8);
+      // First try the canvas approach
+      const permanentUrl = await convertDalleUrlToDataUrl(graphic.url);
       
-      const compressedGraphic: GeneratedGraphic = {
+      const permanentGraphic: GeneratedGraphic = {
         ...graphic,
-        url: compressedUrl
+        url: permanentUrl
       };
       
-      log('Article graphic generated and compressed successfully:', compressedGraphic);
-      return compressedGraphic;
-    } catch (compressionError) {
-      log('Compression failed, using original image:', compressionError);
-      return graphic; // Return original if compression fails
+      log('Article graphic generated and converted to permanent format successfully:', permanentGraphic);
+      return permanentGraphic;
+    } catch (conversionError) {
+      log('Canvas conversion failed, trying proxy method:', conversionError);
+      
+      try {
+        // Fallback to proxy method
+        const permanentUrl = await convertDalleUrlToDataUrlWithProxy(graphic.url);
+        
+        const permanentGraphic: GeneratedGraphic = {
+          ...graphic,
+          url: permanentUrl
+        };
+        
+        log('Article graphic generated and converted to permanent format with proxy successfully:', permanentGraphic);
+        return permanentGraphic;
+      } catch (proxyError) {
+        log('Both conversion methods failed, using original image:', proxyError);
+        return graphic; // Return original if both conversion methods fail
+      }
     }
   } catch (error) {
     log('Error generating article graphic:', error);
     throw error;
   }
+};
+
+/**
+ * Convert DALL-E temporary URL to permanent base64 data URL
+ * This avoids CORS issues by using canvas to convert the image
+ */
+export const convertDalleUrlToDataUrl = async (dalleUrl: string): Promise<string> => {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    
+    // Set crossOrigin to anonymous to handle CORS
+    img.crossOrigin = 'anonymous';
+    
+    img.onload = () => {
+      try {
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+        
+        if (!ctx) {
+          reject(new Error('Could not get canvas context'));
+          return;
+        }
+        
+        // Set canvas dimensions to match image
+        canvas.width = img.width;
+        canvas.height = img.height;
+        
+        // Draw the image to canvas
+        ctx.drawImage(img, 0, 0);
+        
+        // Convert to JPEG with good quality for smaller file size
+        const dataUrl = canvas.toDataURL('image/jpeg', 0.9);
+        
+        log(`Successfully converted DALL-E URL to data URL: ${img.width}x${img.height}`);
+        resolve(dataUrl);
+      } catch (error) {
+        log('Error converting image to data URL:', error);
+        reject(error);
+      }
+    };
+    
+    img.onerror = (error) => {
+      log('Error loading DALL-E image:', error);
+      reject(new Error('Failed to load DALL-E image for conversion'));
+    };
+    
+    // Load the image
+    img.src = dalleUrl;
+  });
+};
+
+/**
+ * Alternative method to convert DALL-E URL using fetch with proxy
+ * This is a fallback if the canvas method fails due to CORS
+ */
+export const convertDalleUrlToDataUrlWithProxy = async (dalleUrl: string): Promise<string> => {
+  try {
+    // Use a CORS proxy to fetch the image
+    const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(dalleUrl)}`;
+    
+    const response = await fetch(proxyUrl);
+    if (!response.ok) {
+      throw new Error(`Failed to fetch image via proxy: ${response.statusText}`);
+    }
+    
+    const blob = await response.blob();
+    return await compressBlobToBase64(blob, 1024, 0.9);
+  } catch (error) {
+    log('Error converting DALL-E URL with proxy:', error);
+    throw error;
+  }
+};
+
+/**
+ * Check if a URL is a DALL-E temporary URL that might expire
+ */
+export const isDalleTemporaryUrl = (url: string): boolean => {
+  return url.includes('oaidalleapiprodscus.blob.core.windows.net') || 
+         url.includes('dalleprodsec.blob.core.windows.net');
+};
+
+/**
+ * Check if a URL is a base64 data URL (permanent)
+ */
+export const isDataUrl = (url: string): boolean => {
+  return url.startsWith('data:');
 };
 
 /**
