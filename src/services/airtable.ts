@@ -258,12 +258,13 @@ export const saveGeneratedContent = async (content: {
       }
     }
     
-    if (content.graphicPrompt && fieldStructure.graphicPromptField) {
-      saveData[fieldStructure.graphicPromptField] = content.graphicPrompt;
+    // Only add fields that actually exist in the table
+    if (content.graphicPrompt && fieldStructure.allFields.includes('Graphic_Prompt')) {
+      saveData['Graphic_Prompt'] = content.graphicPrompt;
     }
     
-    if (content.graphicStyle && fieldStructure.graphicStyleField) {
-      saveData[fieldStructure.graphicStyleField] = content.graphicStyle;
+    if (content.graphicStyle && fieldStructure.allFields.includes('Graphic_Style')) {
+      saveData['Graphic_Style'] = content.graphicStyle;
     }
 
     console.log('Attempting to save:', JSON.stringify(saveData, null, 2));
@@ -318,11 +319,16 @@ export const updateGeneratedContentGraphic = async (
       
       console.log(`Trying field: ${fieldName}`);
       
-      // Prepare update data
-      let updateData: any = {
-        'Graphic_Prompt': graphicData.graphicPrompt,
-        'Graphic_Style': graphicData.graphicStyle
-      };
+      // Prepare update data - only include fields that exist
+      let updateData: any = {};
+      
+      // Only add fields that actually exist in the table
+      if (fieldStructure.allFields.includes('Graphic_Prompt')) {
+        updateData['Graphic_Prompt'] = graphicData.graphicPrompt;
+      }
+      if (fieldStructure.allFields.includes('Graphic_Style')) {
+        updateData['Graphic_Style'] = graphicData.graphicStyle;
+      }
       
       // Always try text field approach first for any URL type
       updateData[fieldName] = graphicData.graphicUrl;
