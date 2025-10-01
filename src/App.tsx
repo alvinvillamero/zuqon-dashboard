@@ -9,7 +9,6 @@ import { Articles } from './pages/Articles';
 import { ContentGeneration } from './pages/ContentGeneration';
 import { ToPublish } from './pages/ToPublish';
 import { Settings } from './pages/Settings';
-import { AuthCallback } from './pages/AuthCallback';
 import { AuthCallbackPopup } from './pages/AuthCallbackPopup';
 import { ErrorBoundary } from './components/ErrorBoundary';
 

@@ -56,57 +56,57 @@ export const Settings = () => {
   const apiKeys = [
     { 
       name: 'OpenAI API Key', 
-      value: import.meta.env.VITE_OPENAI_API_KEY || '', 
+      value: (import.meta as any).env.VITE_OPENAI_API_KEY || '', 
       envKey: 'VITE_OPENAI_API_KEY',
-      isConfigured: Boolean(import.meta.env.VITE_OPENAI_API_KEY)
+      isConfigured: Boolean((import.meta as any).env.VITE_OPENAI_API_KEY)
     },
     { 
       name: 'Airtable API Key', 
-      value: import.meta.env.VITE_AIRTABLE_API_KEY || '', 
+      value: (import.meta as any).env.VITE_AIRTABLE_API_KEY || '', 
       envKey: 'VITE_AIRTABLE_API_KEY',
-      isConfigured: Boolean(import.meta.env.VITE_AIRTABLE_API_KEY)
+      isConfigured: Boolean((import.meta as any).env.VITE_AIRTABLE_API_KEY)
     },
     { 
       name: 'NewsAPI Key', 
-      value: import.meta.env.VITE_NEWSAPI_KEY || '', 
+      value: (import.meta as any).env.VITE_NEWSAPI_KEY || '', 
       envKey: 'VITE_NEWSAPI_KEY',
-      isConfigured: Boolean(import.meta.env.VITE_NEWSAPI_KEY)
+      isConfigured: Boolean((import.meta as any).env.VITE_NEWSAPI_KEY)
     },
     { 
       name: 'Facebook App ID', 
-      value: import.meta.env.VITE_FACEBOOK_APP_ID || '', 
+      value: (import.meta as any).env.VITE_FACEBOOK_APP_ID || '', 
       envKey: 'VITE_FACEBOOK_APP_ID',
-      isConfigured: Boolean(import.meta.env.VITE_FACEBOOK_APP_ID)
+      isConfigured: Boolean((import.meta as any).env.VITE_FACEBOOK_APP_ID)
     },
     { 
       name: 'Facebook App Secret', 
-      value: import.meta.env.VITE_FACEBOOK_APP_SECRET || '', 
+      value: (import.meta as any).env.VITE_FACEBOOK_APP_SECRET || '', 
       envKey: 'VITE_FACEBOOK_APP_SECRET',
-      isConfigured: Boolean(import.meta.env.VITE_FACEBOOK_APP_SECRET)
+      isConfigured: Boolean((import.meta as any).env.VITE_FACEBOOK_APP_SECRET)
     },
     { 
       name: 'Instagram App ID', 
-      value: import.meta.env.VITE_INSTAGRAM_APP_ID || '', 
+      value: (import.meta as any).env.VITE_INSTAGRAM_APP_ID || '', 
       envKey: 'VITE_INSTAGRAM_APP_ID',
-      isConfigured: Boolean(import.meta.env.VITE_INSTAGRAM_APP_ID)
+      isConfigured: Boolean((import.meta as any).env.VITE_INSTAGRAM_APP_ID)
     },
     { 
       name: 'Instagram App Secret', 
-      value: import.meta.env.VITE_INSTAGRAM_APP_SECRET || '', 
+      value: (import.meta as any).env.VITE_INSTAGRAM_APP_SECRET || '', 
       envKey: 'VITE_INSTAGRAM_APP_SECRET',
-      isConfigured: Boolean(import.meta.env.VITE_INSTAGRAM_APP_SECRET)
+      isConfigured: Boolean((import.meta as any).env.VITE_INSTAGRAM_APP_SECRET)
     },
     { 
       name: 'Twitter Client ID', 
-      value: import.meta.env.VITE_TWITTER_CLIENT_ID || '', 
+      value: (import.meta as any).env.VITE_TWITTER_CLIENT_ID || '', 
       envKey: 'VITE_TWITTER_CLIENT_ID',
-      isConfigured: Boolean(import.meta.env.VITE_TWITTER_CLIENT_ID)
+      isConfigured: Boolean((import.meta as any).env.VITE_TWITTER_CLIENT_ID)
     },
     { 
       name: 'Twitter Client Secret', 
-      value: import.meta.env.VITE_TWITTER_CLIENT_SECRET || '', 
+      value: (import.meta as any).env.VITE_TWITTER_CLIENT_SECRET || '', 
       envKey: 'VITE_TWITTER_CLIENT_SECRET',
-      isConfigured: Boolean(import.meta.env.VITE_TWITTER_CLIENT_SECRET)
+      isConfigured: Boolean((import.meta as any).env.VITE_TWITTER_CLIENT_SECRET)
     }
   ];
 

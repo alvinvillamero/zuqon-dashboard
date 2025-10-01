@@ -1,5 +1,5 @@
 const getEnvVar = (key: string, defaultValue?: string): string => {
-  const value = import.meta.env[key] || defaultValue;
+  const value = (import.meta as any).env[key] || defaultValue;
   if (value === undefined) {
     console.error(`Environment variable ${key} is not set`);
     return '';
