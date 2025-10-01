@@ -332,7 +332,9 @@ export const Settings = () => {
                             aria-label="Test source"
                             icon={<FiRefreshCw />}
                             size="sm"
-                            colorScheme="blue"
+                            bg="#1e2b5e"
+                            color="white"
+                            _hover={{ bg: "#2a3a6e" }}
                             onClick={() => handleTestSource(source)}
                             isLoading={isLoading[source.id]}
                           />
@@ -342,8 +344,9 @@ export const Settings = () => {
                             aria-label="Delete source"
                             icon={<FiTrash2 />}
                             size="sm"
-                            colorScheme="red"
-                            variant="ghost"
+                            bg="red.500"
+                            color="white"
+                            _hover={{ bg: "red.600" }}
                             onClick={() => handleDeleteSource(source.id)}
                           />
                         </Tooltip>
@@ -420,8 +423,9 @@ export const Settings = () => {
               <Button 
                 colorScheme="blue" 
                 onClick={handleAddSource}
-                bg="zuqon.500"
-                _hover={{ bg: 'zuqon.600' }}
+                bg="#1e2b5e"
+                color="white"
+                _hover={{ bg: "#2a3a6e" }}
               >
                 Add Source
               </Button>
