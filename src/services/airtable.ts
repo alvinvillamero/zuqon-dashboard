@@ -299,49 +299,66 @@ export const updateGeneratedContentGraphic = async (
     const graphicUrlField = fieldStructure.graphicUrlField || 'Graphic_URL';
     
     console.log(`Using field: ${graphicUrlField}`);
+    console.log(`All available fields:`, fieldStructure.allFields);
     
-    // Prepare update data
-    let updateData: any = {
-      'Graphic_Prompt': graphicData.graphicPrompt,
-      'Graphic_Style': graphicData.graphicStyle
-    };
+    // Try different field name variations if the primary one fails
+    const possibleFields = [
+      graphicUrlField,
+      'Graphic_URL',
+      'Graphic_Image',
+      'Image_URL',
+      'Graphic',
+      'Image'
+    ].filter(Boolean);
     
-    // Handle graphic URL based on its format
-    if (graphicData.graphicUrl.startsWith('data:')) {
-      // Base64 data URL - try as text field first
-      updateData[graphicUrlField] = graphicData.graphicUrl;
+    let lastError = null;
+    
+    for (const fieldName of possibleFields) {
+      if (!fieldName) continue;
+      
+      console.log(`Trying field: ${fieldName}`);
+      
+      // Prepare update data
+      let updateData: any = {
+        'Graphic_Prompt': graphicData.graphicPrompt,
+        'Graphic_Style': graphicData.graphicStyle
+      };
+      
+      // Always try text field approach first for any URL type
+      updateData[fieldName] = graphicData.graphicUrl;
       
       try {
         await contentTable.update(contentId, updateData);
-        console.log(`Successfully updated ${graphicUrlField} as text field`);
+        console.log(`✅ Successfully updated ${fieldName} as text field`);
         return;
       } catch (textError) {
-        console.log('Text field approach failed, trying attachment format...');
+        console.log(`❌ Text field approach failed for ${fieldName}:`, textError.message);
+        lastError = textError;
         
-        // If text fails, try as attachment
-        const base64String = graphicData.graphicUrl.split(',')[1];
-        const mimeType = graphicData.graphicUrl.split(',')[0].split(':')[1].split(';')[0];
-        
-        updateData[graphicUrlField] = [
-          {
-            url: graphicData.graphicUrl,
-            filename: `generated-graphic-${Date.now()}.${mimeType.split('/')[1] || 'jpg'}`
+        // If text fails, try as attachment (only for non-data URLs)
+        if (!graphicData.graphicUrl.startsWith('data:')) {
+          try {
+            updateData[fieldName] = [
+              {
+                url: graphicData.graphicUrl,
+                filename: `generated-graphic-${Date.now()}.png`
+              }
+            ];
+            
+            console.log(`Attempting to update ${fieldName} with attachment format:`, updateData);
+            await contentTable.update(contentId, updateData);
+            console.log(`✅ Successfully updated ${fieldName} as attachment field`);
+            return;
+          } catch (attachmentError) {
+            console.log(`❌ Attachment field approach failed for ${fieldName}:`, attachmentError.message);
+            lastError = attachmentError;
           }
-        ];
-      }
-    } else {
-      // Regular URL - use attachment format
-      updateData[graphicUrlField] = [
-        {
-          url: graphicData.graphicUrl,
-          filename: `generated-graphic-${Date.now()}.png`
         }
-      ];
+      }
     }
     
-    console.log('Attempting to update with attachment format:', updateData);
-    await contentTable.update(contentId, updateData);
-    console.log(`Successfully updated ${graphicUrlField} as attachment field`);
+    // If all field attempts failed, throw the last error
+    throw lastError || new Error('All field update attempts failed');
     
   } catch (error) {
     console.error('Error updating graphic:', error);
@@ -536,6 +553,53 @@ export const detectFieldStructure = async (): Promise<{
   } catch (error) {
     console.error('Error detecting field structure:', error);
     return { allFields: [] };
+  }
+};
+
+// Function to test field type compatibility
+export const testFieldCompatibility = async (contentId: string, fieldName: string): Promise<{
+  supportsText: boolean;
+  supportsAttachment: boolean;
+  error?: string;
+}> => {
+  const result = {
+    supportsText: false,
+    supportsAttachment: false,
+    error: undefined as string | undefined
+  };
+
+  try {
+    // Test text field approach
+    try {
+      await contentTable.update(contentId, {
+        [fieldName]: 'test-text-value'
+      });
+      result.supportsText = true;
+      console.log(`✅ Field ${fieldName} supports text values`);
+    } catch (textError) {
+      console.log(`❌ Field ${fieldName} does not support text values:`, textError.message);
+    }
+
+    // Test attachment field approach
+    try {
+      await contentTable.update(contentId, {
+        [fieldName]: [
+          {
+            url: 'https://example.com/test.png',
+            filename: 'test.png'
+          }
+        ]
+      });
+      result.supportsAttachment = true;
+      console.log(`✅ Field ${fieldName} supports attachment values`);
+    } catch (attachmentError) {
+      console.log(`❌ Field ${fieldName} does not support attachment values:`, attachmentError.message);
+    }
+
+    return result;
+  } catch (error) {
+    result.error = error.message;
+    return result;
   }
 };
 
