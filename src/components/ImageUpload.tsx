@@ -37,7 +37,7 @@ export const ImageUpload: React.FC<ImageUploadProps> = ({
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [fileName, setFileName] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const toast = useToast();
+  // const toast = useToast();
 
   const handleDrag = (e: React.DragEvent) => {
     e.preventDefault();
@@ -83,7 +83,7 @@ export const ImageUpload: React.FC<ImageUploadProps> = ({
 
       // Resize image for better performance
       const resizedBlob = await resizeImage(file, 1024, 1024, 0.8);
-      const resizedUrl = await fileToDataUrl(resizedBlob);
+      const resizedUrl = await fileToDataUrl(resizedBlob as File);
       
       onImageUpload(resizedUrl, file.name);
     } catch (err) {
