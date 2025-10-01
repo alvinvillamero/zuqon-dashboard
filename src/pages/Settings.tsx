@@ -260,8 +260,9 @@ export const Settings = () => {
                 leftIcon={<Icon as={FiPlus} />}
                 colorScheme="blue"
                 onClick={onOpen}
-                bg="zuqon.500"
-                _hover={{ bg: 'zuqon.600' }}
+                bg="blue.500"
+                color="white"
+                _hover={{ bg: 'blue.600' }}
               >
                 Add Source
               </Button>
