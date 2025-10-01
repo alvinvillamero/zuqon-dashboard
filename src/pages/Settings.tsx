@@ -260,9 +260,9 @@ export const Settings = () => {
                 leftIcon={<Icon as={FiPlus} />}
                 colorScheme="blue"
                 onClick={onOpen}
-                bg="blue.500"
+                bg="#1e2b5e"
                 color="white"
-                _hover={{ bg: 'blue.600' }}
+                _hover={{ bg: "#2a3a6e" }}
               >
                 Add Source
               </Button>
