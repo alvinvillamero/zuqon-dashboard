@@ -32,9 +32,10 @@ import { FiExternalLink, FiZap, FiChevronDown, FiChevronRight, FiFacebook, FiIns
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { getGeneratedContent, getArticles, saveGeneratedContent, getPrompt, updateGeneratedContentGraphic, updateGeneratedContentWithUploadedImage } from '../services/airtable';
 import { generateContent } from '../services/openai';
-import { generateArticleGraphic } from '../services/graphics';
+import { generateArticleGraphic, processImageUrl } from '../services/graphics';
 import { uploadImage } from '../services/imageHosting';
 import { ImageUpload } from '../components/ImageUpload';
+import { ProcessedImage } from '../components/ProcessedImage';
 import React, { useState } from 'react';
 import { Article, GraphicGenerationOptions } from '../types';
 
@@ -496,14 +497,19 @@ export const ContentGeneration = () => {
                                         </VStack>
                                       ) : content.graphicUrl ? (
                                         <VStack spacing={4} align="stretch">
-                                          <Image
+                                          <ProcessedImage
                                             src={content.graphicUrl}
+                                            contentId={content.id}
                                             alt={`Generated graphic for ${content.name}`}
                                             borderRadius="lg"
                                             boxShadow="md"
                                             maxW="100%"
                                             maxH="400px"
                                             objectFit="contain"
+                                            onImageProcessed={(newUrl) => {
+                                              // Refresh the content list to show the updated image
+                                              queryClient.invalidateQueries({ queryKey: ['generatedContent'] });
+                                            }}
                                           />
                                           <HStack spacing={2} wrap="wrap">
                                             <Badge colorScheme="blue" variant="subtle">

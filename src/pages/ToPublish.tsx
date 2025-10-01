@@ -64,6 +64,8 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { getGeneratedContent } from '../services/airtable';
 import { getSocialAccounts, updateSocialAccountStatus, deleteSocialAccount, saveSocialAccount } from '../services/socialAccountsLocal';
 import { SocialMediaService, SocialMediaAccount, PostData } from '../services/socialMedia';
+import { processImageUrl } from '../services/graphics';
+import { ProcessedImage } from '../components/ProcessedImage';
 
 interface PublishSchedule {
   id: string;
@@ -179,7 +181,7 @@ export const ToPublish = () => {
         content: platform === 'facebook' ? content.facebookPost : 
                 platform === 'instagram' ? content.instagramPost : 
                 content.twitterPost,
-        imageUrl: content.graphicUrl,
+        imageUrl: processImageUrl(content.graphicUrl),
         platform: platform
       };
       
@@ -572,11 +574,16 @@ export const ToPublish = () => {
                                                 {content.facebookPost}
                                               </Text>
                                               {content.graphicUrl && (
-                                                <Image
+                                                <ProcessedImage
                                                   src={content.graphicUrl}
+                                                  contentId={content.id}
                                                   alt="Generated graphic"
                                                   maxW="300px"
                                                   borderRadius="md"
+                                                  onImageProcessed={(newUrl) => {
+                                                    // Refresh the content list to show the updated image
+                                                    queryClient.invalidateQueries({ queryKey: ['generatedContent'] });
+                                                  }}
                                                 />
                                               )}
                                               <HStack spacing={2}>
@@ -609,11 +616,16 @@ export const ToPublish = () => {
                                                 {content.instagramPost}
                                               </Text>
                                               {content.graphicUrl && (
-                                                <Image
+                                                <ProcessedImage
                                                   src={content.graphicUrl}
+                                                  contentId={content.id}
                                                   alt="Generated graphic"
                                                   maxW="300px"
                                                   borderRadius="md"
+                                                  onImageProcessed={(newUrl) => {
+                                                    // Refresh the content list to show the updated image
+                                                    queryClient.invalidateQueries({ queryKey: ['generatedContent'] });
+                                                  }}
                                                 />
                                               )}
                                               <HStack spacing={2}>
@@ -646,11 +658,16 @@ export const ToPublish = () => {
                                                 {content.twitterPost}
                                               </Text>
                                               {content.graphicUrl && (
-                                                <Image
+                                                <ProcessedImage
                                                   src={content.graphicUrl}
+                                                  contentId={content.id}
                                                   alt="Generated graphic"
                                                   maxW="300px"
                                                   borderRadius="md"
+                                                  onImageProcessed={(newUrl) => {
+                                                    // Refresh the content list to show the updated image
+                                                    queryClient.invalidateQueries({ queryKey: ['generatedContent'] });
+                                                  }}
                                                 />
                                               )}
                                               <HStack spacing={2}>

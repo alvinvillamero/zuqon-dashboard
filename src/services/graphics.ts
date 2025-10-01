@@ -292,6 +292,122 @@ export const isDataUrl = (url: string): boolean => {
 };
 
 /**
+ * Check if a DALL-E URL is expired by looking at the timestamp in the URL
+ */
+export const isDalleUrlExpired = (url: string): boolean => {
+  if (!isDalleTemporaryUrl(url)) return false;
+  
+  try {
+    // Extract the expiration timestamp from the URL
+    const urlParams = new URLSearchParams(url.split('?')[1]);
+    const expirationTime = urlParams.get('se'); // 'se' parameter contains expiration time
+    
+    if (!expirationTime) return true; // If no expiration time, assume expired
+    
+    // Parse the expiration time (format: 2025-10-01T13:14:21Z)
+    const expirationDate = new Date(expirationTime);
+    const now = new Date();
+    
+    return now > expirationDate;
+  } catch (error) {
+    log('Error checking DALL-E URL expiration:', error);
+    return true; // If we can't parse it, assume expired
+  }
+};
+
+/**
+ * Get a fallback image URL for expired DALL-E images
+ */
+export const getFallbackImageUrl = (): string => {
+  // Return a placeholder image or a default image
+  return 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTAyNCIgaGVpZ2h0PSIxMDI0IiB2aWV3Qm94PSIwIDAgMTAyNCAxMDI0IiBmaWxsPSJub25lIiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciPgo8cmVjdCB3aWR0aD0iMTAyNCIgaGVpZ2h0PSIxMDI0IiBmaWxsPSIjRjNGNEY2Ii8+CjxwYXRoIGQ9Ik01MTIgMTI4QzQwMS4zIDEyOCAzMTIgMjE3LjMgMzEyIDMyOEMzMTIgNDM4LjcgNDAxLjMgNTI4IDUxMiA1MjhDNjIyLjcgNTI4IDcxMiA0MzguNyA3MTIgMzI4QzcxMiAyMTcuMyA2MjIuNyAxMjggNTEyIDEyOFoiIGZpbGw9IiM5Q0EzQUYiLz4KPHBhdGggZD0iTTUxMiA2NDBDNDY3LjIgNjQwIDQzMiA2NzUuMiA0MzIgNzIwQzQzMiA3NjQuOCA0NjcuMiA4MDAgNTEyIDgwMEM1NTYuOCA4MDAgNTkyIDc2NC44IDU5MiA3MjBDNTkyIDY3NS4yIDU1Ni44IDY0MCA1MTIgNjQwWiIgZmlsbD0iIzlDQTNBRiIvPgo8L3N2Zz4K';
+};
+
+/**
+ * Convert expired DALL-E URL to base64 and store permanently in Airtable
+ */
+export const convertExpiredUrlToPermanent = async (
+  contentId: string, 
+  expiredUrl: string
+): Promise<string> => {
+  try {
+    log('Converting expired DALL-E URL to permanent base64:', expiredUrl);
+    
+    // Try to convert the expired URL to base64 using proxy
+    const permanentUrl = await convertDalleUrlToDataUrlWithProxy(expiredUrl);
+    
+    // Update the content in Airtable with the permanent URL
+    const { updateGeneratedContentGraphic } = await import('./airtable');
+    await updateGeneratedContentGraphic(contentId, {
+      graphicUrl: permanentUrl,
+      graphicPrompt: 'Converted from expired DALL-E URL',
+      graphicStyle: 'converted'
+    });
+    
+    log('Successfully converted and stored expired URL permanently');
+    return permanentUrl;
+  } catch (error) {
+    log('Failed to convert expired URL, using fallback:', error);
+    return getFallbackImageUrl();
+  }
+};
+
+/**
+ * Process image URL to handle expired DALL-E URLs
+ */
+export const processImageUrl = (url: string): string => {
+  if (!url) return getFallbackImageUrl();
+  
+  // If it's already a data URL, return as is
+  if (isDataUrl(url)) return url;
+  
+  // If it's an expired DALL-E URL, return fallback for now
+  // (The actual conversion will be handled by processImageUrlAsync)
+  if (isDalleUrlExpired(url)) {
+    log('Detected expired DALL-E URL:', url);
+    return getFallbackImageUrl();
+  }
+  
+  // If it's a valid DALL-E URL, return as is
+  if (isDalleTemporaryUrl(url)) return url;
+  
+  // For any other URL, return as is
+  return url;
+};
+
+/**
+ * Process image URL asynchronously to handle expired DALL-E URLs
+ * This version can convert expired URLs to permanent storage
+ */
+export const processImageUrlAsync = async (
+  url: string, 
+  contentId?: string
+): Promise<string> => {
+  if (!url) return getFallbackImageUrl();
+  
+  // If it's already a data URL, return as is
+  if (isDataUrl(url)) return url;
+  
+  // If it's an expired DALL-E URL and we have a contentId, try to convert it
+  if (isDalleUrlExpired(url) && contentId) {
+    log('Detected expired DALL-E URL, attempting conversion:', url);
+    return await convertExpiredUrlToPermanent(contentId, url);
+  }
+  
+  // If it's an expired DALL-E URL without contentId, return fallback
+  if (isDalleUrlExpired(url)) {
+    log('Detected expired DALL-E URL without contentId, using fallback:', url);
+    return getFallbackImageUrl();
+  }
+  
+  // If it's a valid DALL-E URL, return as is
+  if (isDalleTemporaryUrl(url)) return url;
+  
+  // For any other URL, return as is
+  return url;
+};
+
+/**
  * Download image from URL (for saving to local storage or Airtable)
  */
 export const downloadImage = async (imageUrl: string): Promise<Blob> => {
