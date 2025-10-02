@@ -14,6 +14,9 @@ export const ENV = {
   AIRTABLE_CONTENT_TABLE: getEnvVar('VITE_AIRTABLE_CONTENT_TABLE', 'Generated_Content'),
   OPENAI_API_KEY: getEnvVar('VITE_OPENAI_API_KEY'),
   
+  // Make.com Integration
+  MAKECOM_WEBHOOK_URL: getEnvVar('VITE_MAKECOM_WEBHOOK_URL'),
+  
   // Social Media API Keys
   FACEBOOK_APP_ID: getEnvVar('VITE_FACEBOOK_APP_ID'),
   FACEBOOK_APP_SECRET: getEnvVar('VITE_FACEBOOK_APP_SECRET'),

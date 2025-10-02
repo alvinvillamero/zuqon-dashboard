@@ -22,6 +22,14 @@ export interface GeneratedContent {
   graphicUrl?: string;
   graphicPrompt?: string;
   graphicStyle?: string;
+  // Publishing status fields
+  publishStatus?: string;
+  publishPlatforms?: string[];
+  facebookStatus?: string;
+  instagramStatus?: string;
+  twitterStatus?: string;
+  publishedAt?: string;
+  publishingError?: string;
 }
 
 export interface Source {

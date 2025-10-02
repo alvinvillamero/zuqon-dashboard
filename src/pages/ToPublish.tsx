@@ -61,10 +61,12 @@ import {
   FiRefreshCw
 } from 'react-icons/fi';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { getGeneratedContent } from '../services/airtable';
+import { getGeneratedContent, getPublishingStatus } from '../services/airtable';
+import { simulateFacebookPublishSuccess, simulateFacebookPublishFailure } from '../services/makeWebhook';
+import { testAirtablePublishingConnection } from '../services/testAirtableConnection';
+import { debugMakecomData } from '../services/debugMakecom';
 import { getSocialAccounts, updateSocialAccountStatus, deleteSocialAccount, saveSocialAccount } from '../services/socialAccountsLocal';
 import { SocialMediaService, SocialMediaAccount, PostData } from '../services/socialMedia';
-import { processImageUrl } from '../services/graphics';
 import { ProcessedImage } from '../components/ProcessedImage';
 
 interface PublishSchedule {
@@ -84,6 +86,7 @@ export const ToPublish = () => {
   const [selectedContent, setSelectedContent] = useState<string | null>(null);
   const [expandedContent, setExpandedContent] = useState<string | null>(null);
   const [schedulingContent, setSchedulingContent] = useState<string | null>(null);
+  const [selectedPlatforms, setSelectedPlatforms] = useState<Record<string, string[]>>({});
 
   // Mock data for scheduled posts - in real implementation, this would come from API
   const [scheduledPosts] = useState<PublishSchedule[]>([
@@ -160,7 +163,115 @@ export const ToPublish = () => {
     }
   };
 
-  const handlePublishNow = async (contentId: string, platform: 'facebook' | 'instagram' | 'twitter') => {
+  // Handle platform selection
+  const handlePlatformChange = (contentId: string, platform: string, checked: boolean) => {
+    setSelectedPlatforms(prev => {
+      const current = prev[contentId] || [];
+      if (checked) {
+        return { ...prev, [contentId]: [...current, platform] };
+      } else {
+        return { ...prev, [contentId]: current.filter(p => p !== platform) };
+      }
+    });
+  };
+
+  // Make.com integration - Publish via Airtable trigger
+  const handleMakeComPublish = async (contentId: string, platforms: string[], scheduledTime?: string) => {
+    try {
+      setSchedulingContent(contentId);
+      
+      // Find the content
+      const content = generatedContent.find(c => c.id === contentId);
+      if (!content) {
+        throw new Error('Content not found');
+      }
+
+      if (platforms.length === 0) {
+        throw new Error('Please select at least one platform to publish to');
+      }
+
+      // Validate Facebook content specifically
+      if (platforms.includes('Facebook') && !content.facebookPost) {
+        throw new Error('Facebook post content is missing. Please regenerate the content.');
+      }
+
+      // Import Airtable service
+      const { triggerMakecomWebhook } = await import('../services/airtable');
+      
+      // Trigger Make.com webhook directly for instant publishing
+      await triggerMakecomWebhook(
+        contentId,
+        platforms,
+        scheduledTime
+      );
+
+      // Show different messages for Facebook vs other platforms
+      const isFacebookOnly = platforms.length === 1 && platforms[0] === 'Facebook';
+      const includesFacebook = platforms.includes('Facebook');
+      
+      toast({
+        title: scheduledTime ? 'Post scheduled!' : 'Publishing initiated!',
+        description: scheduledTime 
+          ? `Your content has been scheduled for ${platforms.join(', ')}. ${includesFacebook ? 'Facebook' : 'The platforms'} will receive the post at the scheduled time.`
+          : `Your content is being published to ${platforms.join(', ')}. ${isFacebookOnly ? 'Facebook publishing' : 'Make.com automation'} is now processing your request.`,
+        status: 'success',
+        duration: includesFacebook ? 7000 : 5000,
+        isClosable: true,
+      });
+
+      // Clear selected platforms for this content
+      setSelectedPlatforms(prev => ({ ...prev, [contentId]: [] }));
+      
+      // Refresh content to show updated status
+      queryClient.invalidateQueries({ queryKey: ['generatedContent'] });
+      
+      // Start polling for status updates if Facebook is included
+      if (includesFacebook) {
+        setTimeout(() => {
+          queryClient.invalidateQueries({ queryKey: ['generatedContent'] });
+        }, 10000); // Check status after 10 seconds
+      }
+      
+    } catch (error) {
+      console.error('Error initiating publish via Make.com:', error);
+      toast({
+        title: 'Publishing failed',
+        description: error instanceof Error ? error.message : 'An error occurred while initiating publish.',
+        status: 'error',
+        duration: 5000,
+        isClosable: true,
+      });
+    } finally {
+      setSchedulingContent(null);
+    }
+  };
+
+  // Enhanced publish now with Make.com
+  const handlePublishNowMakeCom = async (contentId: string) => {
+    const platforms = selectedPlatforms[contentId] || [];
+    await handleMakeComPublish(contentId, platforms);
+  };
+
+  // Schedule post function with Make.com
+  const handleSchedulePost = async (contentId: string) => {
+    const platforms = selectedPlatforms[contentId] || [];
+    
+    if (platforms.length === 0) {
+      toast({
+        title: 'No platforms selected',
+        description: 'Please select at least one platform to schedule to',
+        status: 'warning',
+        duration: 3000,
+      });
+      return;
+    }
+
+    setSelectedContent(contentId);
+    onOpen();
+  };
+
+  // Enhanced publish now function
+  const handlePublishNow = async (contentId: string, platform?: 'facebook' | 'instagram' | 'twitter') => {
     try {
       setSchedulingContent(contentId);
       
@@ -252,32 +363,6 @@ export const ToPublish = () => {
     }
   };
 
-  const handleSchedulePost = async (contentId: string, platform: string, scheduledTime: string) => {
-    try {
-      setSchedulingContent(contentId);
-      
-      // Mock scheduling process
-      await new Promise(resolve => setTimeout(resolve, 1500));
-      
-      toast({
-        title: 'Post scheduled successfully',
-        description: `Your content will be published to ${platform} at ${new Date(scheduledTime).toLocaleString()}.`,
-        status: 'success',
-        duration: 3000,
-      });
-      
-      onClose();
-    } catch (error) {
-      toast({
-        title: 'Scheduling failed',
-        description: `Failed to schedule post for ${platform}. Please try again.`,
-        status: 'error',
-        duration: 5000,
-      });
-    } finally {
-      setSchedulingContent(null);
-    }
-  };
 
   const getPlatformIcon = (platform: string) => {
     switch (platform) {
@@ -295,6 +380,131 @@ export const ToPublish = () => {
       case 'twitter': return 'blue';
       default: return 'gray';
     }
+  };
+
+  // Component to show publishing status
+  const PublishingStatusBadge = ({ content }: { content: any }) => {
+    // Use content data directly, but also poll for updates
+    const { data: publishStatus } = useQuery({
+      queryKey: ['publishingStatus', content.id],
+      queryFn: () => getPublishingStatus(content.id),
+      refetchInterval: 5000, // Poll every 5 seconds
+      enabled: !!content.publishStatus,
+      initialData: {
+        publishStatus: content.publishStatus,
+        publishPlatforms: content.publishPlatforms,
+        facebookStatus: content.facebookStatus,
+        instagramStatus: content.instagramStatus,
+        twitterStatus: content.twitterStatus,
+        publishedAt: content.publishedAt,
+        errorMessage: content.publishingError,
+      }
+    });
+
+    if (!publishStatus?.publishStatus) return null;
+
+    const getStatusColor = (status: string) => {
+      switch (status) {
+        case 'Ready_to_Publish': return 'orange';
+        case 'Publishing': return 'blue';
+        case 'Published': return 'green';
+        case 'Failed': return 'red';
+        case 'Scheduled': return 'purple';
+        default: return 'gray';
+      }
+    };
+
+    const getStatusText = (status: string) => {
+      switch (status) {
+        case 'Ready_to_Publish': return 'Ready to Publish';
+        case 'Publishing': return 'Publishing...';
+        case 'Published': return 'Published';
+        case 'Failed': return 'Failed';
+        case 'Scheduled': return 'Scheduled';
+        default: return status;
+      }
+    };
+
+    return (
+      <VStack spacing={1} align="start">
+        <Badge
+          colorScheme={getStatusColor(publishStatus.publishStatus)}
+          px={2}
+          py={1}
+          borderRadius="md"
+          fontSize="xs"
+        >
+          {getStatusText(publishStatus.publishStatus)}
+        </Badge>
+        
+        {publishStatus.publishPlatforms && publishStatus.publishPlatforms.length > 0 && (
+          <HStack spacing={1}>
+            {publishStatus.publishPlatforms.map((platform) => (
+              <Badge
+                key={platform}
+                colorScheme={getPlatformColor(platform.toLowerCase())}
+                size="sm"
+                fontSize="xs"
+              >
+                {platform}
+              </Badge>
+            ))}
+          </HStack>
+        )}
+        
+        {publishStatus.facebookStatus && publishStatus.facebookStatus !== 'Pending' && (
+          <Text fontSize="xs" color={publishStatus.facebookStatus === 'Published' ? 'green.600' : 'red.600'}>
+            FB: {publishStatus.facebookStatus}
+          </Text>
+        )}
+        
+        {publishStatus.errorMessage && (
+          <Text fontSize="xs" color="red.600" maxW="200px" isTruncated>
+            Error: {publishStatus.errorMessage}
+          </Text>
+        )}
+        
+        {/* Test buttons for development - remove in production */}
+        {publishStatus.publishStatus === 'Ready_to_Publish' && (
+          <HStack spacing={1}>
+            <Button
+              size="xs"
+              colorScheme="green"
+              variant="outline"
+              onClick={async () => {
+                await simulateFacebookPublishSuccess(content.id);
+                queryClient.invalidateQueries({ queryKey: ['publishingStatus', content.id] });
+                queryClient.invalidateQueries({ queryKey: ['generatedContent'] });
+              }}
+            >
+              ✓ Test Success
+            </Button>
+            <Button
+              size="xs"
+              colorScheme="red"
+              variant="outline"
+              onClick={async () => {
+                await simulateFacebookPublishFailure(content.id, 'Test error message');
+                queryClient.invalidateQueries({ queryKey: ['publishingStatus', content.id] });
+                queryClient.invalidateQueries({ queryKey: ['generatedContent'] });
+              }}
+            >
+              ✗ Test Fail
+            </Button>
+            <Button
+              size="xs"
+              colorScheme="purple"
+              variant="outline"
+              onClick={async () => {
+                await debugMakecomData(content.id);
+              }}
+            >
+              🔍 Debug
+            </Button>
+          </HStack>
+        )}
+      </VStack>
+    );
   };
 
   return (
@@ -502,6 +712,44 @@ export const ToPublish = () => {
             {/* Generated Content Tab */}
             <TabPanel>
               <VStack spacing={6} align="stretch">
+                <Alert status="info" borderRadius="md">
+                  <AlertIcon />
+                  <Box>
+                    <AlertTitle>Facebook Publishing Ready!</AlertTitle>
+                    <AlertDescription>
+                      Your content can now be published directly to Facebook via Make.com automation. 
+                      Select Facebook platform and click "Publish Now" to send your content to Make.com for processing.
+                      Status updates will appear in real-time.
+                    </AlertDescription>
+                  </Box>
+                  <Button
+                    size="sm"
+                    colorScheme="blue"
+                    variant="outline"
+                    ml={4}
+                    onClick={async () => {
+                      try {
+                        await testAirtablePublishingConnection();
+                        toast({
+                          title: 'Connection Test Successful',
+                          description: 'Airtable connection and publishing workflow are working correctly. Check console for details.',
+                          status: 'success',
+                          duration: 5000,
+                        });
+                      } catch (error) {
+                        toast({
+                          title: 'Connection Test Failed',
+                          description: error instanceof Error ? error.message : 'Unknown error occurred',
+                          status: 'error',
+                          duration: 5000,
+                        });
+                      }
+                    }}
+                  >
+                    Test Connection
+                  </Button>
+                </Alert>
+                
                 <Card>
                   <CardHeader>
                     <Heading size="md" color="brand.navy.500">Ready to Publish</Heading>
@@ -516,6 +764,7 @@ export const ToPublish = () => {
                             <Th color="brand.navy.700">CONTENT</Th>
                             <Th color="brand.navy.700">ORIGINAL URL</Th>
                             <Th color="brand.navy.700">GENERATION DATE</Th>
+                            <Th color="brand.navy.700">STATUS</Th>
                             <Th color="brand.navy.700">ACTIONS</Th>
                           </Tr>
                         </Thead>
@@ -541,24 +790,98 @@ export const ToPublish = () => {
                                   {content.generationDate ? new Date(content.generationDate).toLocaleDateString() : '-'}
                                 </Td>
                                 <Td>
-                                  <HStack spacing={2}>
-                                    <Button
-                                      size="sm"
-                                      colorScheme="blue"
-                                      leftIcon={<Icon as={FiSend} />}
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        setSelectedContent(content.id);
-                                        onOpen();
-                                      }}
-                                    >
-                                      Publish
-                                    </Button>
-                                  </HStack>
+                                  <PublishingStatusBadge content={content} />
+                                </Td>
+                                <Td>
+                                  <VStack spacing={2} align="stretch" minW="200px">
+                                    {/* Platform Selection */}
+                                    <HStack spacing={3} wrap="wrap">
+                                      <HStack spacing={1}>
+                                        <input 
+                                          type="checkbox" 
+                                          id={`facebook-${content.id}`}
+                                          checked={selectedPlatforms[content.id]?.includes('Facebook') || false}
+                                          onChange={(e) => {
+                                            e.stopPropagation();
+                                            handlePlatformChange(content.id, 'Facebook', e.target.checked);
+                                          }}
+                                        />
+                                        <label htmlFor={`facebook-${content.id}`}>
+                                          <HStack spacing={1}>
+                                            <Icon as={FiFacebook} color="blue.600" boxSize={3} />
+                                            <Text fontSize="xs">FB</Text>
+                                          </HStack>
+                                        </label>
+                                      </HStack>
+                                      <HStack spacing={1}>
+                                        <input 
+                                          type="checkbox" 
+                                          id={`instagram-${content.id}`}
+                                          checked={selectedPlatforms[content.id]?.includes('Instagram') || false}
+                                          onChange={(e) => {
+                                            e.stopPropagation();
+                                            handlePlatformChange(content.id, 'Instagram', e.target.checked);
+                                          }}
+                                        />
+                                        <label htmlFor={`instagram-${content.id}`}>
+                                          <HStack spacing={1}>
+                                            <Icon as={FiInstagram} color="pink.600" boxSize={3} />
+                                            <Text fontSize="xs">IG</Text>
+                                          </HStack>
+                                        </label>
+                                      </HStack>
+                                      <HStack spacing={1}>
+                                        <input 
+                                          type="checkbox" 
+                                          id={`twitter-${content.id}`}
+                                          checked={selectedPlatforms[content.id]?.includes('Twitter') || false}
+                                          onChange={(e) => {
+                                            e.stopPropagation();
+                                            handlePlatformChange(content.id, 'Twitter', e.target.checked);
+                                          }}
+                                        />
+                                        <label htmlFor={`twitter-${content.id}`}>
+                                          <HStack spacing={1}>
+                                            <Icon as={FiTwitter} color="blue.400" boxSize={3} />
+                                            <Text fontSize="xs">TW</Text>
+                                          </HStack>
+                                        </label>
+                                      </HStack>
+                                    </HStack>
+
+                                    {/* Publish Buttons */}
+                                    <HStack spacing={2}>
+                                      <Button
+                                        size="xs"
+                                        colorScheme="green"
+                                        leftIcon={<Icon as={FiSend} />}
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          handlePublishNowMakeCom(content.id);
+                                        }}
+                                        isLoading={schedulingContent === content.id}
+                                        isDisabled={!selectedPlatforms[content.id]?.length}
+                                      >
+                                        Publish Now
+                                      </Button>
+                                      <Button
+                                        size="xs"
+                                        variant="outline"
+                                        leftIcon={<Icon as={FiCalendar} />}
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          handleSchedulePost(content.id);
+                                        }}
+                                        isDisabled={!selectedPlatforms[content.id]?.length}
+                                      >
+                                        Schedule
+                                      </Button>
+                                    </HStack>
+                                  </VStack>
                                 </Td>
                               </Tr>
                               <Tr>
-                                <Td colSpan={4} p={0}>
+                                <Td colSpan={5} p={0}>
                                   <Collapse in={expandedContent === content.id}>
                                     <Box p={4} bg="gray.50">
                                       <Tabs variant="enclosed" colorScheme="brand.navy" size="sm">

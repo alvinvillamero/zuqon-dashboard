@@ -161,6 +161,13 @@ export const getGeneratedContent = async (): Promise<GeneratedContent[]> => {
       sort: [{ field: 'Generation_Date', direction: 'desc' }]
     }).all();
 
+    // Debug: Log first record's fields to see what's available (remove in production)
+    if (records.length > 0) {
+      console.log('🔍 Available fields in first record:', Object.keys(records[0].fields));
+      console.log('🔍 Publish Platforms field value:', records[0].get('Publish Platforms'));
+      console.log('🔍 Publish Platforms field type:', typeof records[0].get('Publish Platforms'));
+    }
+
     return records.map(record => {
       // Handle Graphic_URL as attachment field
       const graphicAttachment = record.get('Graphic_URL') as any;
@@ -183,6 +190,22 @@ export const getGeneratedContent = async (): Promise<GeneratedContent[]> => {
         graphicUrl: graphicUrl,
         graphicPrompt: record.get('Graphic_Prompt') as string || undefined,
         graphicStyle: record.get('Graphic_Style') as string || undefined,
+        // Publishing status fields
+        publishStatus: record.get('Publish Status') as string,
+        publishPlatforms: (() => {
+          const platforms = record.get('Publish Platforms');
+          if (Array.isArray(platforms)) {
+            return platforms;
+          } else if (typeof platforms === 'string' && platforms) {
+            return platforms.split(', ');
+          }
+          return [];
+        })(),
+        facebookStatus: record.get('Facebook Status') as string || undefined,
+        instagramStatus: record.get('Instagram Status') as string || undefined,
+        twitterStatus: record.get('Twitter Status') as string || undefined,
+        publishedAt: record.get('Published At') as string || undefined,
+        publishingError: record.get('Publishing Error') as string || undefined,
       };
     });
   } catch (error) {
@@ -510,13 +533,30 @@ export const detectFieldStructure = async (): Promise<{
   allFields: string[];
 }> => {
   try {
-    const records = await contentTable.select({ maxRecords: 1 }).firstPage();
+    // Get ALL records to ensure we capture all possible fields
+    // Some fields might not appear in the first record if they were added later
+    const records = await contentTable.select({ 
+      maxRecords: 100, // Get more records to capture all fields
+      fields: [] // This forces Airtable to return ALL fields, even empty ones
+    }).firstPage();
     
     if (records.length === 0) {
+      console.log('⚠️ No records found in table - cannot detect fields');
       return { allFields: [] };
     }
     
-    const fields = Object.keys(records[0].fields);
+    // Collect all unique field names from all records
+    const allFieldsSet = new Set<string>();
+    
+    records.forEach(record => {
+      Object.keys(record.fields).forEach(field => {
+        allFieldsSet.add(field);
+      });
+    });
+    
+    const fields = Array.from(allFieldsSet);
+    
+    console.log('🔍 Detected fields from', records.length, 'records:', fields);
     
     // Look for graphic-related fields
     const graphicUrlField = fields.find(field => 
@@ -590,6 +630,200 @@ export const testFieldCompatibility = async (contentId: string, fieldName: strin
   } catch (error) {
     result.error = error.message;
     return result;
+  }
+};
+
+// Function to sanitize data for Make.com to prevent URL encoding issues
+const sanitizeForMakecom = (data: any): any => {
+  if (typeof data === 'string') {
+    // Remove or escape problematic characters
+    return data
+      .replace(/[\u0000-\u001F\u007F-\u009F]/g, '') // Remove control characters
+      .replace(/[^\x20-\x7E\u00A0-\uFFFF]/g, '') // Keep printable ASCII and Unicode
+      .trim();
+  }
+  if (Array.isArray(data)) {
+    return data.map(item => sanitizeForMakecom(item));
+  }
+  if (typeof data === 'object' && data !== null) {
+    const sanitized: any = {};
+    for (const [key, value] of Object.entries(data)) {
+      sanitized[key] = sanitizeForMakecom(value);
+    }
+    return sanitized;
+  }
+  return data;
+};
+
+// Function to trigger Make.com webhook directly for instant publishing
+export const triggerMakecomWebhook = async (
+  contentId: string,
+  publishPlatforms: string[],
+  scheduledTime?: string
+): Promise<void> => {
+  try {
+    // Get the content data to send to Make.com
+    const allContent = await getGeneratedContent();
+    const content = allContent.find(c => c.id === contentId);
+    
+    if (!content) {
+      throw new Error('Content not found');
+    }
+
+    // Prepare webhook payload with all necessary data
+    const webhookPayload = {
+      contentId: contentId,
+      name: content.name,
+      originalUrl: content.originalUrl,
+      facebookPost: content.facebookPost,
+      instagramPost: content.instagramPost,
+      twitterPost: content.twitterPost,
+      graphicUrl: content.graphicUrl,
+      publishPlatforms: publishPlatforms,
+      scheduledTime: scheduledTime,
+      timestamp: new Date().toISOString()
+    };
+
+    // Clean the payload to prevent encoding issues
+    const cleanedPayload = sanitizeForMakecom(webhookPayload);
+    
+    console.log('🚀 Triggering Make.com webhook with payload:', cleanedPayload);
+
+    // Get Make.com webhook URL from environment
+    const MAKECOM_WEBHOOK_URL = ENV.MAKECOM_WEBHOOK_URL;
+    
+    if (!MAKECOM_WEBHOOK_URL) {
+      console.warn('⚠️ Make.com webhook URL not configured. Using fallback method.');
+      // Fallback to Airtable update method
+      await updatePublishStatusFallback(contentId, 'Ready_to_Publish', publishPlatforms, scheduledTime);
+      return;
+    }
+
+    // Send webhook to Make.com
+    const response = await fetch(MAKECOM_WEBHOOK_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(cleanedPayload)
+    });
+
+    if (!response.ok) {
+      throw new Error(`Webhook failed: ${response.status} ${response.statusText}`);
+    }
+
+    console.log('✅ Make.com webhook triggered successfully');
+    
+  } catch (error) {
+    console.error('Error triggering Make.com webhook:', error);
+    // Fallback to Airtable update method
+    console.log('🔄 Falling back to Airtable update method');
+    await updatePublishStatusFallback(contentId, 'Ready_to_Publish', publishPlatforms, scheduledTime);
+  }
+};
+
+// Fallback function - original Airtable update method
+export const updatePublishStatusFallback = async (
+  contentId: string,
+  publishStatus: string,
+  publishPlatforms: string[],
+  scheduledTime?: string
+): Promise<void> => {
+  try {
+    const updateData: any = {};
+    
+    // Core publishing fields for Make.com integration - only use existing fields
+    updateData['Publish Status'] = publishStatus;
+    updateData['Publish Platforms'] = publishPlatforms; // Keep as array since Airtable expects array
+    updateData['Publishing Notes'] = `Initiated from dashboard at ${new Date().toISOString()}`;
+    
+    // Sanitize data before sending to prevent URL encoding issues
+    const sanitizedData = sanitizeForMakecom(updateData);
+    console.log('Updating publish status (fallback):', sanitizedData);
+    await contentTable.update(contentId, sanitizedData);
+    console.log('✅ Successfully updated publish status (fallback)');
+    
+  } catch (error) {
+    console.error('Error updating publish status (fallback):', error);
+    throw error;
+  }
+};
+
+// Keep the original function for backward compatibility
+export const updatePublishStatus = updatePublishStatusFallback;
+
+// Function to get publishing status for Make.com integration
+export const getPublishingStatus = async (contentId: string): Promise<{
+  publishStatus?: string;
+  publishPlatforms?: string[];
+  facebookStatus?: string;
+  instagramStatus?: string;
+  twitterStatus?: string;
+  publishedAt?: string;
+  errorMessage?: string;
+}> => {
+  try {
+    const record = await contentTable.find(contentId);
+    
+    return {
+      publishStatus: record.get('Publish Status') as string,
+      publishPlatforms: (() => {
+        const platforms = record.get('Publish Platforms');
+        if (Array.isArray(platforms)) {
+          return platforms;
+        } else if (typeof platforms === 'string' && platforms) {
+          return platforms.split(', ');
+        }
+        return [];
+      })(),
+      facebookStatus: record.get('Facebook Status') as string || undefined,
+      instagramStatus: record.get('Instagram Status') as string || undefined,
+      twitterStatus: record.get('Twitter Status') as string || undefined,
+      publishedAt: record.get('Published At') as string || undefined,
+      errorMessage: record.get('Publishing Error') as string || undefined,
+    };
+  } catch (error) {
+    console.error('Error getting publishing status:', error);
+    throw error;
+  }
+};
+
+// Function to update publishing results from Make.com webhook
+export const updatePublishingResults = async (
+  contentId: string,
+  results: {
+    platform: string;
+    status: 'success' | 'failed';
+    postId?: string;
+    errorMessage?: string;
+    publishedAt?: string;
+  }[]
+): Promise<void> => {
+  try {
+    const updateData: any = {};
+    
+    // Update overall status
+    const allSuccessful = results.every(r => r.status === 'success');
+    const anyFailed = results.some(r => r.status === 'failed');
+    
+    if (allSuccessful) {
+      updateData['Publish Status'] = 'Published';
+      updateData['Publishing Notes'] = `Published successfully at ${new Date().toISOString()}`;
+    } else if (anyFailed) {
+      updateData['Publish Status'] = 'Failed';
+      updateData['Publishing Notes'] = `Failed: ${results
+        .filter(r => r.status === 'failed')
+        .map(r => `${r.platform}: ${r.errorMessage}`)
+        .join('; ')} at ${new Date().toISOString()}`;
+    }
+    
+    console.log('Updating publishing results:', updateData);
+    await contentTable.update(contentId, updateData);
+    console.log('✅ Successfully updated publishing results');
+    
+  } catch (error) {
+    console.error('Error updating publishing results:', error);
+    throw error;
   }
 };
 
