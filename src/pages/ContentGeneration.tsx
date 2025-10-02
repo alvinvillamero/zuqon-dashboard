@@ -499,17 +499,12 @@ export const ContentGeneration = () => {
                                         <VStack spacing={4} align="stretch">
                                           <ProcessedImage
                                             src={content.graphicUrl}
-                                            contentId={content.id}
                                             alt={`Generated graphic for ${content.name}`}
                                             borderRadius="lg"
                                             boxShadow="md"
                                             maxW="100%"
                                             maxH="400px"
                                             objectFit="contain"
-                                            onImageProcessed={(newUrl) => {
-                                              // Refresh the content list to show the updated image
-                                              queryClient.invalidateQueries({ queryKey: ['generatedContent'] });
-                                            }}
                                           />
                                           <HStack spacing={2} wrap="wrap">
                                             <Badge colorScheme="blue" variant="subtle">

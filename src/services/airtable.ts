@@ -161,19 +161,30 @@ export const getGeneratedContent = async (): Promise<GeneratedContent[]> => {
       sort: [{ field: 'Generation_Date', direction: 'desc' }]
     }).all();
 
-    return records.map(record => ({
-      id: record.id,
-      name: record.get('Name') as string,
-      originalUrl: record.get('Original_URL') as string,
-      facebookPost: record.get('Facebook_Post') as string,
-      instagramPost: record.get('Instagram_Post') as string,
-      twitterPost: record.get('Twitter_X_Post') as string,
-      videoScript: record.get('Video_Script') as string,
-      generationDate: record.get('Generation_Date') as string,
-      graphicUrl: record.get('Graphic_URL') as string || undefined,
-      graphicPrompt: record.get('Graphic_Prompt') as string || undefined,
-      graphicStyle: record.get('Graphic_Style') as string || undefined,
-    }));
+    return records.map(record => {
+      // Handle Graphic_URL as attachment field
+      const graphicAttachment = record.get('Graphic_URL') as any;
+      let graphicUrl: string | undefined;
+      
+      if (graphicAttachment && Array.isArray(graphicAttachment) && graphicAttachment.length > 0) {
+        // Get the URL from the first attachment
+        graphicUrl = graphicAttachment[0].url;
+      }
+      
+      return {
+        id: record.id,
+        name: record.get('Name') as string,
+        originalUrl: record.get('Original_URL') as string,
+        facebookPost: record.get('Facebook_Post') as string,
+        instagramPost: record.get('Instagram_Post') as string,
+        twitterPost: record.get('Twitter_X_Post') as string,
+        videoScript: record.get('Video_Script') as string,
+        generationDate: record.get('Generation_Date') as string,
+        graphicUrl: graphicUrl,
+        graphicPrompt: record.get('Graphic_Prompt') as string || undefined,
+        graphicStyle: record.get('Graphic_Style') as string || undefined,
+      };
+    });
   } catch (error) {
     console.error('Error fetching generated content:', error);
     // Log detailed error info
@@ -245,10 +256,20 @@ export const saveGeneratedContent = async (content: {
       
       // Handle graphic URL based on its format
       if (content.graphicUrl.startsWith('data:')) {
-        // Base64 data URL - try as text field first
-        saveData[graphicUrlField] = content.graphicUrl;
+        // Base64 data URL - convert to attachment format
+        const base64Data = content.graphicUrl.split(',')[1];
+        const mimeType = content.graphicUrl.split(',')[0].split(':')[1].split(';')[0];
+        const extension = mimeType.split('/')[1] || 'jpg';
+        
+        saveData[graphicUrlField] = [
+          {
+            filename: `generated-graphic-${Date.now()}.${extension}`,
+            content: base64Data,
+            contentType: mimeType
+          }
+        ];
       } else {
-        // Regular URL - use attachment format
+        // Regular URL - use attachment format with URL
         saveData[graphicUrlField] = [
           {
             url: content.graphicUrl,
@@ -302,69 +323,44 @@ export const updateGeneratedContentGraphic = async (
     console.log(`Using field: ${graphicUrlField}`);
     console.log(`All available fields:`, fieldStructure.allFields);
     
-    // Try different field name variations if the primary one fails
-    const possibleFields = [
-      graphicUrlField,
-      'Graphic_URL',
-      'Graphic_Image',
-      'Image_URL',
-      'Graphic',
-      'Image'
-    ].filter(Boolean);
+    // Prepare update data - only include fields that exist
+    let updateData: any = {};
     
-    let lastError = null;
-    
-    for (const fieldName of possibleFields) {
-      if (!fieldName) continue;
-      
-      console.log(`Trying field: ${fieldName}`);
-      
-      // Prepare update data - only include fields that exist
-      let updateData: any = {};
-      
-      // Only add fields that actually exist in the table
-      if (fieldStructure.allFields.includes('Graphic_Prompt')) {
-        updateData['Graphic_Prompt'] = graphicData.graphicPrompt;
-      }
-      if (fieldStructure.allFields.includes('Graphic_Style')) {
-        updateData['Graphic_Style'] = graphicData.graphicStyle;
-      }
-      
-      // Always try text field approach first for any URL type
-      updateData[fieldName] = graphicData.graphicUrl;
-      
-      try {
-        await contentTable.update(contentId, updateData);
-        console.log(`✅ Successfully updated ${fieldName} as text field`);
-        return;
-      } catch (textError) {
-        console.log(`❌ Text field approach failed for ${fieldName}:`, textError.message);
-        lastError = textError;
-        
-        // If text fails, try as attachment (only for non-data URLs)
-        if (!graphicData.graphicUrl.startsWith('data:')) {
-          try {
-            updateData[fieldName] = [
-              {
-                url: graphicData.graphicUrl,
-                filename: `generated-graphic-${Date.now()}.png`
-              }
-            ];
-            
-            console.log(`Attempting to update ${fieldName} with attachment format:`, updateData);
-            await contentTable.update(contentId, updateData);
-            console.log(`✅ Successfully updated ${fieldName} as attachment field`);
-            return;
-          } catch (attachmentError) {
-            console.log(`❌ Attachment field approach failed for ${fieldName}:`, attachmentError.message);
-            lastError = attachmentError;
-          }
-        }
-      }
+    // Only add fields that actually exist in the table
+    if (fieldStructure.allFields.includes('Graphic_Prompt')) {
+      updateData['Graphic_Prompt'] = graphicData.graphicPrompt;
+    }
+    if (fieldStructure.allFields.includes('Graphic_Style')) {
+      updateData['Graphic_Style'] = graphicData.graphicStyle;
     }
     
-    // If all field attempts failed, throw the last error
-    throw lastError || new Error('All field update attempts failed');
+    // Handle graphic URL as attachment (since you changed the field type to attachment)
+    if (graphicData.graphicUrl.startsWith('data:')) {
+      // Base64 data URL - convert to attachment format
+      const base64Data = graphicData.graphicUrl.split(',')[1];
+      const mimeType = graphicData.graphicUrl.split(',')[0].split(':')[1].split(';')[0];
+      const extension = mimeType.split('/')[1] || 'jpg';
+      
+      updateData[graphicUrlField] = [
+        {
+          filename: `generated-graphic-${Date.now()}.${extension}`,
+          content: base64Data,
+          contentType: mimeType
+        }
+      ];
+    } else {
+      // Regular URL - use attachment format with URL
+      updateData[graphicUrlField] = [
+        {
+          url: graphicData.graphicUrl,
+          filename: `generated-graphic-${Date.now()}.png`
+        }
+      ];
+    }
+    
+    console.log(`Attempting to update ${graphicUrlField} with attachment format:`, updateData);
+    await contentTable.update(contentId, updateData);
+    console.log(`✅ Successfully updated ${graphicUrlField} as attachment field`);
     
   } catch (error) {
     console.error('Error updating graphic:', error);
@@ -391,36 +387,24 @@ export const updateGeneratedContentWithUploadedImage = async (
     
     console.log(`Using field: ${graphicUrlField}`);
     
-    // Try different approaches based on field type
-    let updateData: any = {};
+    // Since the field is now an attachment field, use attachment format
+    const base64String = dataUrl.split(',')[1];
+    const mimeType = dataUrl.split(',')[0].split(':')[1].split(';')[0];
+    const extension = mimeType.split('/')[1] || 'jpg';
     
-    // First, try as text field (for Long text fields)
-    updateData[graphicUrlField] = dataUrl;
-    
-    console.log('Attempting to update with base64 data as text:', updateData);
-    
-    try {
-      await contentTable.update(contentId, updateData);
-      console.log(`Successfully updated ${graphicUrlField} as text field`);
-      return;
-    } catch (textError) {
-      console.log('Text field approach failed, trying attachment format...');
-      
-      // If text fails, try as attachment
-      const base64String = dataUrl.split(',')[1];
-      const mimeType = dataUrl.split(',')[0].split(':')[1].split(';')[0];
-      
-      updateData[graphicUrlField] = [
+    const updateData: any = {
+      [graphicUrlField]: [
         {
-          url: `data:${mimeType};base64,${base64String}`,
-          filename: fileName
+          filename: fileName || `uploaded-image-${Date.now()}.${extension}`,
+          content: base64String,
+          contentType: mimeType
         }
-      ];
-      
-      console.log('Attempting to update with attachment format:', updateData);
-      await contentTable.update(contentId, updateData);
-      console.log(`Successfully updated ${graphicUrlField} as attachment field`);
-    }
+      ]
+    };
+    
+    console.log('Attempting to update with attachment format:', updateData);
+    await contentTable.update(contentId, updateData);
+    console.log(`Successfully updated ${graphicUrlField} as attachment field`);
     
   } catch (error) {
     console.error('Error updating with uploaded image:', error);

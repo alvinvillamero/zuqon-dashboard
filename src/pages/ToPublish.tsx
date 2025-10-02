@@ -181,7 +181,7 @@ export const ToPublish = () => {
         content: platform === 'facebook' ? content.facebookPost : 
                 platform === 'instagram' ? content.instagramPost : 
                 content.twitterPost,
-        imageUrl: processImageUrl(content.graphicUrl),
+        imageUrl: content.graphicUrl,
         platform: platform
       };
       
@@ -576,14 +576,9 @@ export const ToPublish = () => {
                                               {content.graphicUrl && (
                                                 <ProcessedImage
                                                   src={content.graphicUrl}
-                                                  contentId={content.id}
                                                   alt="Generated graphic"
                                                   maxW="300px"
                                                   borderRadius="md"
-                                                  onImageProcessed={(newUrl) => {
-                                                    // Refresh the content list to show the updated image
-                                                    queryClient.invalidateQueries({ queryKey: ['generatedContent'] });
-                                                  }}
                                                 />
                                               )}
                                               <HStack spacing={2}>
@@ -618,14 +613,9 @@ export const ToPublish = () => {
                                               {content.graphicUrl && (
                                                 <ProcessedImage
                                                   src={content.graphicUrl}
-                                                  contentId={content.id}
                                                   alt="Generated graphic"
                                                   maxW="300px"
                                                   borderRadius="md"
-                                                  onImageProcessed={(newUrl) => {
-                                                    // Refresh the content list to show the updated image
-                                                    queryClient.invalidateQueries({ queryKey: ['generatedContent'] });
-                                                  }}
                                                 />
                                               )}
                                               <HStack spacing={2}>
@@ -660,14 +650,9 @@ export const ToPublish = () => {
                                               {content.graphicUrl && (
                                                 <ProcessedImage
                                                   src={content.graphicUrl}
-                                                  contentId={content.id}
                                                   alt="Generated graphic"
                                                   maxW="300px"
                                                   borderRadius="md"
-                                                  onImageProcessed={(newUrl) => {
-                                                    // Refresh the content list to show the updated image
-                                                    queryClient.invalidateQueries({ queryKey: ['generatedContent'] });
-                                                  }}
                                                 />
                                               )}
                                               <HStack spacing={2}>
