@@ -154,3 +154,4 @@ When working correctly, you should see:
 - ✅ Post appears on Facebook page
 - ✅ Airtable status updates to "Published"
 - ✅ No error notifications from Make.com
+

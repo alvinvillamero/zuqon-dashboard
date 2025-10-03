@@ -164,8 +164,6 @@ export const getGeneratedContent = async (): Promise<GeneratedContent[]> => {
     // Debug: Log first record's fields to see what's available (remove in production)
     if (records.length > 0) {
       console.log('🔍 Available fields in first record:', Object.keys(records[0].fields));
-      console.log('🔍 Publish Platforms field value:', records[0].get('Publish Platforms'));
-      console.log('🔍 Publish Platforms field type:', typeof records[0].get('Publish Platforms'));
     }
 
     return records.map(record => {
@@ -178,6 +176,20 @@ export const getGeneratedContent = async (): Promise<GeneratedContent[]> => {
         graphicUrl = graphicAttachment[0].url;
       }
       
+      // Derive publishPlatforms from per-platform booleans or statuses
+      const derivedPlatforms: string[] = [];
+      try {
+        const fbPublished = (record.get('Facebook_Published') as boolean) === true;
+        const igPublished = (record.get('Instagram_Published') as boolean) === true;
+        const twPublished = (record.get('Twitter_Published') as boolean) === true;
+        const fbStatus = (record.get('Facebook Status') as string) || '';
+        const igStatus = (record.get('Instagram Status') as string) || '';
+        const twStatus = (record.get('Twitter Status') as string) || '';
+        if (fbPublished || fbStatus === 'Published') derivedPlatforms.push('Facebook');
+        if (igPublished || igStatus === 'Published') derivedPlatforms.push('Instagram');
+        if (twPublished || twStatus === 'Published') derivedPlatforms.push('Twitter');
+      } catch {}
+
       return {
         id: record.id,
         name: record.get('Name') as string,
@@ -192,15 +204,7 @@ export const getGeneratedContent = async (): Promise<GeneratedContent[]> => {
         graphicStyle: record.get('Graphic_Style') as string || undefined,
         // Publishing status fields
         publishStatus: record.get('Publish Status') as string,
-        publishPlatforms: (() => {
-          const platforms = record.get('Publish Platforms');
-          if (Array.isArray(platforms)) {
-            return platforms;
-          } else if (typeof platforms === 'string' && platforms) {
-            return platforms.split(', ');
-          }
-          return [];
-        })(),
+        publishPlatforms: derivedPlatforms,
         facebookStatus: record.get('Facebook Status') as string || undefined,
         instagramStatus: record.get('Instagram Status') as string || undefined,
         twitterStatus: record.get('Twitter Status') as string || undefined,
@@ -734,7 +738,6 @@ export const updatePublishStatusFallback = async (
     
     // Core publishing fields for Make.com integration - only use existing fields
     updateData['Publish Status'] = publishStatus;
-    updateData['Publish Platforms'] = publishPlatforms; // Keep as array since Airtable expects array
     updateData['Publishing Notes'] = `Initiated from dashboard at ${new Date().toISOString()}`;
     
     // Sanitize data before sending to prevent URL encoding issues
@@ -765,17 +768,23 @@ export const getPublishingStatus = async (contentId: string): Promise<{
   try {
     const record = await contentTable.find(contentId);
     
+    // Derive platforms from per-platform flags/status
+    const derivedPlatforms: string[] = [];
+    try {
+      const fbPublished = (record.get('Facebook_Published') as boolean) === true;
+      const igPublished = (record.get('Instagram_Published') as boolean) === true;
+      const twPublished = (record.get('Twitter_Published') as boolean) === true;
+      const fbStatus = (record.get('Facebook Status') as string) || '';
+      const igStatus = (record.get('Instagram Status') as string) || '';
+      const twStatus = (record.get('Twitter Status') as string) || '';
+      if (fbPublished || fbStatus === 'Published') derivedPlatforms.push('Facebook');
+      if (igPublished || igStatus === 'Published') derivedPlatforms.push('Instagram');
+      if (twPublished || twStatus === 'Published') derivedPlatforms.push('Twitter');
+    } catch {}
+
     return {
       publishStatus: record.get('Publish Status') as string,
-      publishPlatforms: (() => {
-        const platforms = record.get('Publish Platforms');
-        if (Array.isArray(platforms)) {
-          return platforms;
-        } else if (typeof platforms === 'string' && platforms) {
-          return platforms.split(', ');
-        }
-        return [];
-      })(),
+      publishPlatforms: derivedPlatforms,
       facebookStatus: record.get('Facebook Status') as string || undefined,
       instagramStatus: record.get('Instagram Status') as string || undefined,
       twitterStatus: record.get('Twitter Status') as string || undefined,
@@ -912,6 +921,56 @@ export const updateGraphicPrompt = async (
     console.log('Graphic prompt updated successfully');
   } catch (error) {
     console.error('Error updating graphic prompt:', error);
+    console.error('Full error details:', JSON.stringify(error, null, 2));
+    throw error;
+  }
+};
+
+// Function to schedule content for future publishing
+export const scheduleContent = async (
+  contentId: string,
+  scheduleData: {
+    scheduledTime: string;
+    platforms: string[];
+    isScheduled: boolean;
+  }
+): Promise<void> => {
+  try {
+    const updateData: any = {
+      'Is_Scheduled': scheduleData.isScheduled,
+      'Scheduled_Time': scheduleData.scheduledTime,
+      'Scheduled_Platforms': scheduleData.platforms,
+      'Publish Status': 'Scheduled',
+      'Publish_Platforms': scheduleData.platforms,
+      'Publishing_Notes': `Scheduled for ${new Date(scheduleData.scheduledTime).toLocaleString()}`
+    };
+
+    console.log('Scheduling content:', updateData);
+    
+    await contentTable.update(contentId, updateData);
+    console.log('Content scheduled successfully');
+  } catch (error) {
+    console.error('Error scheduling content:', error);
+    console.error('Full error details:', JSON.stringify(error, null, 2));
+    throw error;
+  }
+};
+
+// Function to cancel scheduled content
+export const cancelScheduledContent = async (contentId: string): Promise<void> => {
+  try {
+    const updateData: any = {
+      'Is_Scheduled': false,
+      'Publish Status': 'Not_Published',
+      'Publishing_Notes': `Scheduling cancelled at ${new Date().toISOString()}`
+    };
+
+    console.log('Cancelling scheduled content:', updateData);
+    
+    await contentTable.update(contentId, updateData);
+    console.log('Scheduled content cancelled successfully');
+  } catch (error) {
+    console.error('Error cancelling scheduled content:', error);
     console.error('Full error details:', JSON.stringify(error, null, 2));
     throw error;
   }

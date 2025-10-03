@@ -196,3 +196,4 @@ If you encounter issues:
 2. Verify Airtable field names and data
 3. Test Facebook API permissions
 4. Review this guide step by step
+

@@ -122,3 +122,4 @@ The debug button will show you exactly what's causing the problem. Common remain
 - **Special encoding** - some characters might need different handling
 
 Run the debug button and share the console output if you need further help!
+

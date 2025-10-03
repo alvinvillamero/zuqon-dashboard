@@ -33,11 +33,8 @@ import {
   FormLabel,
   Input,
   Select,
-  Switch,
   useToast,
-  Image,
   Collapse,
-  Divider,
   Alert,
   AlertIcon,
   AlertTitle,
@@ -46,27 +43,19 @@ import {
 import React, { useState } from 'react';
 import { 
   FiSend, 
-  FiPlus, 
   FiFacebook, 
   FiInstagram, 
   FiTwitter, 
   FiCalendar, 
-  FiClock, 
-  FiCheck, 
-  FiX,
   FiExternalLink,
   FiChevronDown,
-  FiChevronRight,
-  FiSettings,
-  FiRefreshCw
+  FiChevronRight
 } from 'react-icons/fi';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { getGeneratedContent, getPublishingStatus } from '../services/airtable';
 import { simulateFacebookPublishSuccess, simulateFacebookPublishFailure } from '../services/makeWebhook';
 import { testAirtablePublishingConnection } from '../services/testAirtableConnection';
 import { debugMakecomData } from '../services/debugMakecom';
-import { getSocialAccounts, updateSocialAccountStatus, deleteSocialAccount, saveSocialAccount } from '../services/socialAccountsLocal';
-import { SocialMediaService, SocialMediaAccount, PostData } from '../services/socialMedia';
 import { ProcessedImage } from '../components/ProcessedImage';
 
 interface PublishSchedule {
@@ -87,6 +76,7 @@ export const ToPublish = () => {
   const [expandedContent, setExpandedContent] = useState<string | null>(null);
   const [schedulingContent, setSchedulingContent] = useState<string | null>(null);
   const [selectedPlatforms, setSelectedPlatforms] = useState<Record<string, string[]>>({});
+  const [scheduledTime, setScheduledTime] = useState<string>('');
 
   // Mock data for scheduled posts - in real implementation, this would come from API
   const [scheduledPosts] = useState<PublishSchedule[]>([
@@ -109,11 +99,6 @@ export const ToPublish = () => {
     }
   ]);
 
-  // Fetch social media accounts
-  const { data: socialAccounts = [], isLoading: isLoadingAccounts } = useQuery({
-    queryKey: ['socialAccounts'],
-    queryFn: getSocialAccounts
-  });
 
   // Fetch generated content
   const { data: generatedContent = [], isLoading } = useQuery({
@@ -121,47 +106,6 @@ export const ToPublish = () => {
     queryFn: getGeneratedContent
   });
 
-  const handleConnectAccount = async (platform: 'facebook' | 'instagram' | 'twitter') => {
-    console.log('Connect button clicked for platform:', platform);
-    
-    try {
-      toast({
-        title: `${platform} connection initiated`,
-        description: `Opening ${platform} authentication popup...`,
-        status: 'info',
-        duration: 3000,
-      });
-      
-      console.log('About to call SocialMediaService.connectAccountWithPopup');
-      
-      // Use popup OAuth flow
-      const account = await SocialMediaService.connectAccountWithPopup(platform);
-      
-      console.log('Account received from popup:', account);
-      
-      // Save account to localStorage
-      await saveSocialAccount(account);
-      
-      // Refresh the accounts list
-      queryClient.invalidateQueries({ queryKey: ['socialAccounts'] });
-      
-      toast({
-        title: `${platform} connected successfully!`,
-        description: `Your ${platform} account "${account.name}" has been connected.`,
-        status: 'success',
-        duration: 5000,
-        isClosable: true,
-      });
-    } catch (error) {
-      console.error('Error in handleConnectAccount:', error);
-      toast({
-        title: 'Connection failed',
-        description: error instanceof Error ? error.message : `Failed to connect ${platform} account. Please try again.`,
-        status: 'error',
-        duration: 5000,
-      });
-    }
-  };
 
   // Handle platform selection
   const handlePlatformChange = (contentId: string, platform: string, checked: boolean) => {
@@ -173,6 +117,36 @@ export const ToPublish = () => {
         return { ...prev, [contentId]: current.filter(p => p !== platform) };
       }
     });
+  };
+
+  // Check if content is already published to a specific platform
+  const isContentPublishedToPlatform = (content: any, platform: string): boolean => {
+    if (!content.publishStatus) return false;
+    
+    // If we already have derived platforms on the record, honor them immediately
+    if (Array.isArray(content.publishPlatforms) && content.publishPlatforms.includes(platform)) {
+      return true;
+    }
+
+    // If content is published overall, check if it was published to this platform
+    if (content.publishStatus === 'Published') {
+      return content.publishPlatforms?.includes(platform) || false;
+    }
+    
+    // If content is scheduled, check if it's scheduled to this platform
+    if (content.publishStatus === 'Scheduled') {
+      return content.scheduledPlatforms?.includes(platform) || false;
+    }
+    
+    // Check individual platform status
+    const platformStatusField = `${platform.toLowerCase()}Status`;
+    const platformStatus = content[platformStatusField];
+    return platformStatus === 'Published';
+  };
+
+  // Check if platform checkbox should be disabled
+  const isPlatformDisabled = (content: any, platform: string): boolean => {
+    return isContentPublishedToPlatform(content, platform);
   };
 
   // Make.com integration - Publish via Airtable trigger
@@ -270,117 +244,54 @@ export const ToPublish = () => {
     onOpen();
   };
 
-  // Enhanced publish now function
-  const handlePublishNow = async (contentId: string, platform?: 'facebook' | 'instagram' | 'twitter') => {
+  // Handle actual scheduling
+  const handleScheduleSubmit = async (scheduledTime: string, platforms: string[]) => {
+    if (!selectedContent) return;
+
     try {
-      setSchedulingContent(contentId);
+      setSchedulingContent(selectedContent);
       
-      // Find the content and account
-      const content = generatedContent.find(c => c.id === contentId);
-      const account = socialAccounts.find(a => a.platform === platform && a.isConnected);
+      // Import Airtable service
+      const { scheduleContent } = await import('../services/airtable');
       
-      if (!content) {
-        throw new Error('Content not found');
-      }
-      
-      if (!account) {
-        throw new Error(`No connected ${platform} account found`);
-      }
-      
-      // Prepare post data
-      const postData: PostData = {
-        content: platform === 'facebook' ? content.facebookPost : 
-                platform === 'instagram' ? content.instagramPost : 
-                content.twitterPost,
-        imageUrl: content.graphicUrl,
-        platform: platform
-      };
-      
-      // Publish the content
-      const result = await SocialMediaService.publishContent(account, postData);
-      
-      if (result.success) {
-        toast({
-          title: 'Content published successfully',
-          description: `Your content has been published to ${platform}.`,
-          status: 'success',
-          duration: 3000,
-        });
-      } else {
-        throw new Error(result.error || 'Publishing failed');
-      }
-    } catch (error) {
+      // Schedule the content
+      await scheduleContent(selectedContent, {
+        scheduledTime,
+        platforms,
+        isScheduled: true
+      });
+
       toast({
-        title: 'Publishing failed',
-        description: error instanceof Error ? error.message : `Failed to publish to ${platform}. Please try again.`,
+        title: 'Post scheduled successfully!',
+        description: `Your content will be published to ${platforms.join(', ')} at ${new Date(scheduledTime).toLocaleString()}`,
+        status: 'success',
+        duration: 5000,
+        isClosable: true,
+      });
+
+      // Clear selected platforms and close modal
+      setSelectedPlatforms(prev => ({ ...prev, [selectedContent]: [] }));
+      onClose();
+      
+      // Refresh content to show updated status
+      queryClient.invalidateQueries({ queryKey: ['generatedContent'] });
+      
+    } catch (error) {
+      console.error('Error scheduling content:', error);
+      toast({
+        title: 'Scheduling failed',
+        description: error instanceof Error ? error.message : 'An error occurred while scheduling the post.',
         status: 'error',
         duration: 5000,
+        isClosable: true,
       });
     } finally {
       setSchedulingContent(null);
     }
   };
 
-  const handleDisconnectAccount = async (accountId: string) => {
-    try {
-      await deleteSocialAccount(accountId);
-      queryClient.invalidateQueries({ queryKey: ['socialAccounts'] });
-      
-      toast({
-        title: 'Account disconnected',
-        description: 'The social media account has been disconnected.',
-        status: 'success',
-        duration: 3000,
-      });
-    } catch (error) {
-      toast({
-        title: 'Error disconnecting account',
-        description: error instanceof Error ? error.message : 'Unknown error occurred',
-        status: 'error',
-        duration: 5000,
-      });
-    }
-  };
-
-  const handleSyncAccount = async (accountId: string) => {
-    try {
-      await updateSocialAccountStatus(accountId, true);
-      queryClient.invalidateQueries({ queryKey: ['socialAccounts'] });
-      
-      toast({
-        title: 'Account synced',
-        description: 'Account information has been updated.',
-        status: 'success',
-        duration: 3000,
-      });
-    } catch (error) {
-      toast({
-        title: 'Error syncing account',
-        description: error instanceof Error ? error.message : 'Unknown error occurred',
-        status: 'error',
-        duration: 5000,
-      });
-    }
-  };
 
 
-  const getPlatformIcon = (platform: string) => {
-    switch (platform) {
-      case 'facebook': return FiFacebook;
-      case 'instagram': return FiInstagram;
-      case 'twitter': return FiTwitter;
-      default: return FiSend;
-    }
-  };
-
-  const getPlatformColor = (platform: string) => {
-    switch (platform) {
-      case 'facebook': return 'blue';
-      case 'instagram': return 'pink';
-      case 'twitter': return 'blue';
-      default: return 'gray';
-    }
-  };
 
   // Component to show publishing status
   const PublishingStatusBadge = ({ content }: { content: any }) => {
@@ -410,6 +321,7 @@ export const ToPublish = () => {
         case 'Published': return 'green';
         case 'Failed': return 'red';
         case 'Scheduled': return 'purple';
+        case 'Not_Published': return 'gray';
         default: return 'gray';
       }
     };
@@ -421,6 +333,7 @@ export const ToPublish = () => {
         case 'Published': return 'Published';
         case 'Failed': return 'Failed';
         case 'Scheduled': return 'Scheduled';
+        case 'Not_Published': return 'Not Published';
         default: return status;
       }
     };
@@ -439,16 +352,26 @@ export const ToPublish = () => {
         
         {publishStatus.publishPlatforms && publishStatus.publishPlatforms.length > 0 && (
           <HStack spacing={1}>
-            {publishStatus.publishPlatforms.map((platform) => (
-              <Badge
-                key={platform}
-                colorScheme={getPlatformColor(platform.toLowerCase())}
-                size="sm"
-                fontSize="xs"
-              >
-                {platform}
-              </Badge>
-            ))}
+            {publishStatus.publishPlatforms.map((platform) => {
+              const getPlatformColor = (platform: string) => {
+                switch (platform.toLowerCase()) {
+                  case 'facebook': return 'blue';
+                  case 'instagram': return 'pink';
+                  case 'twitter': return 'blue';
+                  default: return 'gray';
+                }
+              };
+              return (
+                <Badge
+                  key={platform}
+                  colorScheme={getPlatformColor(platform)}
+                  size="sm"
+                  fontSize="xs"
+                >
+                  {platform}
+                </Badge>
+              );
+            })}
           </HStack>
         )}
         
@@ -514,201 +437,11 @@ export const ToPublish = () => {
         
         <Tabs variant="enclosed" colorScheme="brand.navy">
           <TabList>
-            <Tab>Social Media Accounts</Tab>
             <Tab>Generated Content</Tab>
             <Tab>Scheduled Posts</Tab>
           </TabList>
 
           <TabPanels>
-            {/* Social Media Accounts Tab */}
-            <TabPanel>
-              <VStack spacing={6} align="stretch">
-                <Card>
-                  <CardHeader>
-                    <Heading size="md" color="brand.navy.500">Connected Accounts</Heading>
-                  </CardHeader>
-                  <CardBody>
-                    <VStack spacing={4} align="stretch">
-                      {socialAccounts.length > 0 ? (
-                        socialAccounts.map((account) => (
-                          <Card key={account.id} variant="outline">
-                            <CardBody>
-                              <HStack justify="space-between">
-                                <HStack spacing={4}>
-                                  <Icon 
-                                    as={getPlatformIcon(account.platform)} 
-                                    color={`${getPlatformColor(account.platform)}.500`}
-                                    boxSize={6}
-                                  />
-                                  <VStack align="start" spacing={1}>
-                                    <Text fontWeight="medium" color="brand.navy.900">
-                                      {account.name}
-                                    </Text>
-                                    <Text fontSize="sm" color="gray.600">
-                                      {account.username}
-                                    </Text>
-                                    {account.lastSync && (
-                                      <Text fontSize="xs" color="gray.500">
-                                        Last sync: {new Date(account.lastSync).toLocaleString()}
-                                      </Text>
-                                    )}
-                                  </VStack>
-                                </HStack>
-                                <VStack spacing={2}>
-                                  <Badge
-                                    colorScheme={account.isConnected ? 'green' : 'red'}
-                                    px={2}
-                                    py={1}
-                                    borderRadius="md"
-                                  >
-                                    {account.isConnected ? 'CONNECTED' : 'NOT CONNECTED'}
-                                  </Badge>
-                                  {!account.isConnected ? (
-                                    <Button
-                                      size="sm"
-                                      colorScheme={getPlatformColor(account.platform)}
-                                      onClick={() => handleConnectAccount(account.platform)}
-                                    >
-                                      Connect
-                                    </Button>
-                                  ) : (
-                                    <HStack spacing={2}>
-                                      <Button
-                                        size="sm"
-                                        variant="outline"
-                                        leftIcon={<Icon as={FiRefreshCw} />}
-                                        onClick={() => handleSyncAccount(account.id)}
-                                      >
-                                        Sync
-                                      </Button>
-                                      <Button
-                                        size="sm"
-                                        variant="ghost"
-                                        leftIcon={<Icon as={FiSettings} />}
-                                      >
-                                        Settings
-                                      </Button>
-                                      <Button
-                                        size="sm"
-                                        variant="ghost"
-                                        colorScheme="red"
-                                        leftIcon={<Icon as={FiX} />}
-                                        onClick={() => handleDisconnectAccount(account.id)}
-                                      >
-                                        Disconnect
-                                      </Button>
-                                    </HStack>
-                                  )}
-                                </VStack>
-                              </HStack>
-                            </CardBody>
-                          </Card>
-                        ))
-                      ) : (
-                        <VStack spacing={4} align="stretch">
-                          <Text color="brand.navy.600" textAlign="center" py={4}>
-                            No social media accounts connected yet. Connect your accounts below to start publishing.
-                          </Text>
-                          
-                          {/* Default platform options */}
-                          <VStack spacing={3} align="stretch">
-                            <Card variant="outline" bg="gray.50">
-                              <CardBody>
-                                <HStack justify="space-between">
-                                  <HStack spacing={4}>
-                                    <Icon as={FiFacebook} color="blue.500" boxSize={6} />
-                                    <VStack align="start" spacing={1}>
-                                      <Text fontWeight="medium" color="brand.navy.900">
-                                        Facebook
-                                      </Text>
-                                      <Text fontSize="sm" color="gray.600">
-                                        Connect your Facebook Page
-                                      </Text>
-                                    </VStack>
-                                  </HStack>
-                                  <Button
-                                    size="sm"
-                                    colorScheme="blue"
-                                    onClick={() => handleConnectAccount('facebook')}
-                                  >
-                                    Connect
-                                  </Button>
-                                </HStack>
-                              </CardBody>
-                            </Card>
-
-                            <Card variant="outline" bg="gray.50">
-                              <CardBody>
-                                <HStack justify="space-between">
-                                  <HStack spacing={4}>
-                                    <Icon as={FiInstagram} color="pink.500" boxSize={6} />
-                                    <VStack align="start" spacing={1}>
-                                      <Text fontWeight="medium" color="brand.navy.900">
-                                        Instagram
-                                      </Text>
-                                      <Text fontSize="sm" color="gray.600">
-                                        Connect your Instagram Business account
-                                      </Text>
-                                    </VStack>
-                                  </HStack>
-                                  <Button
-                                    size="sm"
-                                    colorScheme="pink"
-                                    onClick={() => handleConnectAccount('instagram')}
-                                  >
-                                    Connect
-                                  </Button>
-                                </HStack>
-                              </CardBody>
-                            </Card>
-
-                            <Card variant="outline" bg="gray.50">
-                              <CardBody>
-                                <HStack justify="space-between">
-                                  <HStack spacing={4}>
-                                    <Icon as={FiTwitter} color="blue.500" boxSize={6} />
-                                    <VStack align="start" spacing={1}>
-                                      <Text fontWeight="medium" color="brand.navy.900">
-                                        Twitter/X
-                                      </Text>
-                                      <Text fontSize="sm" color="gray.600">
-                                        Connect your Twitter/X account
-                                      </Text>
-                                      <Text fontSize="xs" color="orange.600">
-                                        Temporarily disabled
-                                      </Text>
-                                    </VStack>
-                                  </HStack>
-                                  <Button
-                                    size="sm"
-                                    colorScheme="gray"
-                                    isDisabled
-                                  >
-                                    Temporarily Disabled
-                                  </Button>
-                                </HStack>
-                              </CardBody>
-                            </Card>
-                          </VStack>
-                        </VStack>
-                      )}
-                    </VStack>
-                  </CardBody>
-                </Card>
-
-                <Alert status="info">
-                  <AlertIcon />
-                  <Box>
-                    <AlertTitle>Social Media Integration</AlertTitle>
-                    <AlertDescription>
-                      Connect your social media accounts to publish and schedule content directly from Zuqon AI. 
-                      We support Facebook Pages, Instagram Business accounts, and Twitter/X profiles.
-                    </AlertDescription>
-                  </Box>
-                </Alert>
-              </VStack>
-            </TabPanel>
-
             {/* Generated Content Tab */}
             <TabPanel>
               <VStack spacing={6} align="stretch">
@@ -801,15 +534,29 @@ export const ToPublish = () => {
                                           type="checkbox" 
                                           id={`facebook-${content.id}`}
                                           checked={selectedPlatforms[content.id]?.includes('Facebook') || false}
+                                          disabled={isPlatformDisabled(content, 'Facebook')}
                                           onChange={(e) => {
                                             e.stopPropagation();
                                             handlePlatformChange(content.id, 'Facebook', e.target.checked);
                                           }}
+                                          style={{
+                                            opacity: isPlatformDisabled(content, 'Facebook') ? 0.5 : 1,
+                                            cursor: isPlatformDisabled(content, 'Facebook') ? 'not-allowed' : 'pointer'
+                                          }}
                                         />
-                                        <label htmlFor={`facebook-${content.id}`}>
+                                        <label 
+                                          htmlFor={`facebook-${content.id}`}
+                                          style={{
+                                            opacity: isPlatformDisabled(content, 'Facebook') ? 0.5 : 1,
+                                            cursor: isPlatformDisabled(content, 'Facebook') ? 'not-allowed' : 'pointer'
+                                          }}
+                                        >
                                           <HStack spacing={1}>
-                                            <Icon as={FiFacebook} color="blue.600" boxSize={3} />
-                                            <Text fontSize="xs">FB</Text>
+                                            <Icon as={FiFacebook} color={isPlatformDisabled(content, 'Facebook') ? "gray.400" : "blue.600"} boxSize={3} />
+                                            <Text fontSize="xs" color={isPlatformDisabled(content, 'Facebook') ? "gray.400" : "inherit"}>
+                                              FB {isPlatformDisabled(content, 'Facebook') ? 
+                                                (content.publishStatus === 'Scheduled' ? '(Scheduled)' : '(Published)') : ''}
+                                            </Text>
                                           </HStack>
                                         </label>
                                       </HStack>
@@ -818,15 +565,29 @@ export const ToPublish = () => {
                                           type="checkbox" 
                                           id={`instagram-${content.id}`}
                                           checked={selectedPlatforms[content.id]?.includes('Instagram') || false}
+                                          disabled={isPlatformDisabled(content, 'Instagram')}
                                           onChange={(e) => {
                                             e.stopPropagation();
                                             handlePlatformChange(content.id, 'Instagram', e.target.checked);
                                           }}
+                                          style={{
+                                            opacity: isPlatformDisabled(content, 'Instagram') ? 0.5 : 1,
+                                            cursor: isPlatformDisabled(content, 'Instagram') ? 'not-allowed' : 'pointer'
+                                          }}
                                         />
-                                        <label htmlFor={`instagram-${content.id}`}>
+                                        <label 
+                                          htmlFor={`instagram-${content.id}`}
+                                          style={{
+                                            opacity: isPlatformDisabled(content, 'Instagram') ? 0.5 : 1,
+                                            cursor: isPlatformDisabled(content, 'Instagram') ? 'not-allowed' : 'pointer'
+                                          }}
+                                        >
                                           <HStack spacing={1}>
-                                            <Icon as={FiInstagram} color="pink.600" boxSize={3} />
-                                            <Text fontSize="xs">IG</Text>
+                                            <Icon as={FiInstagram} color={isPlatformDisabled(content, 'Instagram') ? "gray.400" : "pink.600"} boxSize={3} />
+                                            <Text fontSize="xs" color={isPlatformDisabled(content, 'Instagram') ? "gray.400" : "inherit"}>
+                                              IG {isPlatformDisabled(content, 'Instagram') ? 
+                                                (content.publishStatus === 'Scheduled' ? '(Scheduled)' : '(Published)') : ''}
+                                            </Text>
                                           </HStack>
                                         </label>
                                       </HStack>
@@ -835,15 +596,29 @@ export const ToPublish = () => {
                                           type="checkbox" 
                                           id={`twitter-${content.id}`}
                                           checked={selectedPlatforms[content.id]?.includes('Twitter') || false}
+                                          disabled={isPlatformDisabled(content, 'Twitter')}
                                           onChange={(e) => {
                                             e.stopPropagation();
                                             handlePlatformChange(content.id, 'Twitter', e.target.checked);
                                           }}
+                                          style={{
+                                            opacity: isPlatformDisabled(content, 'Twitter') ? 0.5 : 1,
+                                            cursor: isPlatformDisabled(content, 'Twitter') ? 'not-allowed' : 'pointer'
+                                          }}
                                         />
-                                        <label htmlFor={`twitter-${content.id}`}>
+                                        <label 
+                                          htmlFor={`twitter-${content.id}`}
+                                          style={{
+                                            opacity: isPlatformDisabled(content, 'Twitter') ? 0.5 : 1,
+                                            cursor: isPlatformDisabled(content, 'Twitter') ? 'not-allowed' : 'pointer'
+                                          }}
+                                        >
                                           <HStack spacing={1}>
-                                            <Icon as={FiTwitter} color="blue.400" boxSize={3} />
-                                            <Text fontSize="xs">TW</Text>
+                                            <Icon as={FiTwitter} color={isPlatformDisabled(content, 'Twitter') ? "gray.400" : "blue.400"} boxSize={3} />
+                                            <Text fontSize="xs" color={isPlatformDisabled(content, 'Twitter') ? "gray.400" : "inherit"}>
+                                              TW {isPlatformDisabled(content, 'Twitter') ? 
+                                                (content.publishStatus === 'Scheduled' ? '(Scheduled)' : '(Published)') : ''}
+                                            </Text>
                                           </HStack>
                                         </label>
                                       </HStack>
@@ -860,7 +635,10 @@ export const ToPublish = () => {
                                           handlePublishNowMakeCom(content.id);
                                         }}
                                         isLoading={schedulingContent === content.id}
-                                        isDisabled={!selectedPlatforms[content.id]?.length}
+                                        isDisabled={!selectedPlatforms[content.id]?.length || 
+                                                   (isPlatformDisabled(content, 'Facebook') && 
+                                                    isPlatformDisabled(content, 'Instagram') && 
+                                                    isPlatformDisabled(content, 'Twitter'))}
                                       >
                                         Publish Now
                                       </Button>
@@ -872,7 +650,10 @@ export const ToPublish = () => {
                                           e.stopPropagation();
                                           handleSchedulePost(content.id);
                                         }}
-                                        isDisabled={!selectedPlatforms[content.id]?.length}
+                                        isDisabled={!selectedPlatforms[content.id]?.length || 
+                                                   (isPlatformDisabled(content, 'Facebook') && 
+                                                    isPlatformDisabled(content, 'Instagram') && 
+                                                    isPlatformDisabled(content, 'Twitter'))}
                                       >
                                         Schedule
                                       </Button>
@@ -1049,8 +830,12 @@ export const ToPublish = () => {
                             <Td>
                               <HStack>
                                 <Icon 
-                                  as={getPlatformIcon(post.platform)} 
-                                  color={`${getPlatformColor(post.platform)}.500`}
+                                  as={post.platform === 'facebook' ? FiFacebook : 
+                                      post.platform === 'instagram' ? FiInstagram : 
+                                      FiTwitter} 
+                                  color={`${post.platform === 'facebook' ? 'blue' : 
+                                          post.platform === 'instagram' ? 'pink' : 
+                                          'blue'}.500`}
                                 />
                                 <Text fontSize="sm" textTransform="capitalize">
                                   {post.platform}
@@ -1117,33 +902,41 @@ export const ToPublish = () => {
             <ModalCloseButton />
             <ModalBody>
               <VStack spacing={4}>
-                <FormControl>
-                  <FormLabel color="brand.navy.700">Select Platform</FormLabel>
-                  <Select placeholder="Choose platform">
-                    <option value="facebook">Facebook</option>
-                    <option value="instagram">Instagram</option>
-                    <option value="twitter">Twitter/X</option>
-                  </Select>
-                </FormControl>
-                
-                <FormControl>
-                  <FormLabel color="brand.navy.700">Select Account</FormLabel>
-                  <Select placeholder="Choose account">
-                    {socialAccounts.filter(acc => acc.isConnected).map(account => (
-                      <option key={account.id} value={account.id}>
-                        {account.name} ({account.platform})
-                      </option>
-                    ))}
-                  </Select>
-                </FormControl>
+                <Alert status="info" borderRadius="md">
+                  <AlertIcon />
+                  <Box>
+                    <AlertTitle>Platforms Selected</AlertTitle>
+                    <AlertDescription>
+                      {selectedContent && selectedPlatforms[selectedContent]?.length > 0 
+                        ? `Scheduling to: ${selectedPlatforms[selectedContent].join(', ')}`
+                        : 'No platforms selected'
+                      }
+                    </AlertDescription>
+                  </Box>
+                </Alert>
 
                 <FormControl>
                   <FormLabel color="brand.navy.700">Schedule Date & Time</FormLabel>
                   <Input
                     type="datetime-local"
                     min={new Date().toISOString().slice(0, 16)}
+                    onChange={(e) => {
+                      // Store the selected time in state
+                      setScheduledTime(e.target.value);
+                    }}
                   />
                 </FormControl>
+
+                <Alert status="warning" borderRadius="md">
+                  <AlertIcon />
+                  <Box>
+                    <AlertTitle>Important</AlertTitle>
+                    <AlertDescription>
+                      Make sure your Make.com scenario is set up to handle scheduled posts. 
+                      Watch for "Publish Status" = "Scheduled" and "Is_Scheduled" = true.
+                    </AlertDescription>
+                  </Box>
+                </Alert>
               </VStack>
             </ModalBody>
             <ModalFooter>
@@ -1153,10 +946,22 @@ export const ToPublish = () => {
               <Button 
                 colorScheme="blue" 
                 onClick={() => {
-                  // Mock schedule action
-                  handleSchedulePost(selectedContent!, 'facebook', new Date().toISOString());
+                  if (selectedContent && selectedPlatforms[selectedContent]?.length > 0) {
+                    const scheduledTime = (document.querySelector('input[type="datetime-local"]') as HTMLInputElement)?.value;
+                    if (scheduledTime) {
+                      handleScheduleSubmit(scheduledTime, selectedPlatforms[selectedContent]);
+                    } else {
+                      toast({
+                        title: 'Please select a date and time',
+                        description: 'You must choose when to schedule the post.',
+                        status: 'warning',
+                        duration: 3000,
+                      });
+                    }
+                  }
                 }}
                 isLoading={schedulingContent === selectedContent}
+                isDisabled={!selectedContent || !selectedPlatforms[selectedContent]?.length}
               >
                 Schedule Post
               </Button>
